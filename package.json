@@ -1,0 +1,29 @@
+{
+  "name": "@kapitchi/bb-box",
+  "version": "0.1.0",
+  "description": "Development box",
+  "main": "src/index.js",
+  "bin": {
+    "bb-box": "./bin/bb-box.js"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Matus Zeman <matus.zeman@gmail.com>",
+  "license": "MIT",
+  "dependencies": {
+    "@kapitchi/bb-service": "^1.4.0",
+    "commander": "^2.11.0",
+    "globby": "^6.1.0",
+    "inquirer": "^3.3.0",
+    "joi": "^11.0.2",
+    "lodash": "^4.17.4"
+  },
+  "bugs": {
+    "url": "https://github.com/matuszeman/bb-box/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/matuszeman/bb-box"
+  }
+}
