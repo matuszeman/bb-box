@@ -17,8 +17,13 @@
     "globby": "^6.1.0",
     "inquirer": "^3.3.0",
     "joi": "^11.0.2",
-    "lodash": "^4.17.4"
+    "lodash": "^4.17.4",
+    "shelljs": "^0.7.8"
   },
+  "files": [
+    "bin",
+    "src"
+  ],
   "bugs": {
     "url": "https://github.com/matuszeman/bb-box/issues"
   },
