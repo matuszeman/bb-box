@@ -4,12 +4,11 @@ const path = require('path');
 const {AbstractService, Joi} = require('@kapitchi/bb-service');
 const inquirer = require('inquirer');
 const shell = require('shelljs');
+const RuntimeLocal = require('./runtime-local');
 
-//https://github.com/shelljs/shelljs#configsilent
-//TODO shell.config.reset();
-shell.config.silent = true;
-shell.config.fatal = true;
-//shell.config.verbose = true;
+const serviceSchema = Joi.object({
+  name: Joi.string()
+}).options({allowUnknown: true});
 
 class BbBox extends AbstractService {
   /**
@@ -19,10 +18,13 @@ class BbBox extends AbstractService {
   constructor(bbBoxOpts) {
     super(bbBoxOpts, {
       cwd: Joi.string().optional().default(process.cwd()),
-      execFormat: Joi.string().optional()
+      exec: Joi.string().optional()
     });
 
     this.plugins = [];
+    this.runtimes = {
+      local: new RuntimeLocal()
+    };
   }
 
   /**
@@ -30,7 +32,8 @@ class BbBox extends AbstractService {
    * @param plugin
    */
   addPlugin(plugin) {
-    //TODO
+    plugin.register(this);
+    this.plugins.push(plugin);
   }
 
   /**
@@ -38,23 +41,9 @@ class BbBox extends AbstractService {
    * @param params
    * @returns {Promise.<void>}
    */
-  async init(params) {
-    params = this.params(params, {
-      services: Joi.array().optional()
-    });
-
-    const {services} = this.discover(params.services);
-    for (const service of services) {
-      this.logger.log({
-        level: 'info',
-        msg: `Initializing ${service.name} ...`,
-      });
-      await this.execute(service, 'init');
-      this.logger.log({
-        level: 'info',
-        msg: `... done`,
-      });
-    }
+  async install(params) {
+    params.op = 'install';
+    return this.runOp(params);
   }
 
   /**
@@ -63,17 +52,49 @@ class BbBox extends AbstractService {
    * @returns {Promise.<void>}
    */
   async update(params) {
+    params.op = 'update';
+    return this.runOp(params);
+  }
+
+  async start(params) {
+    params.op = 'start';
+    return this.runOp(params);
+  }
+
+  async stop(params) {
+    params.op = 'stop';
+    return this.runOp(params);
+  }
+
+  async runOp(params) {
     params = this.params(params, {
+      op: Joi.string().allow('install', 'update', 'start', 'stop'),
       services: Joi.array().optional()
     });
 
-    const {services} = this.discover();
-    for (const service of services) {
+    const service = await this.discover();
+
+    await this.run({
+      service,
+      op: params.op
+    });
+
+    if (!service.services) {
+      return;
+    }
+    for (const serviceName in service.services) {
+      const subService = service.services[serviceName];
+
       this.logger.log({
         level: 'info',
-        msg: `Updating ${service.name} ...`,
+        msg: `[${serviceName}] ${params.op}...`,
       });
-      await this.execute(service, 'update');
+
+      await this.run({
+        service: subService,
+        op: params.op
+      });
+
       this.logger.log({
         level: 'info',
         msg: `... done`,
@@ -81,71 +102,125 @@ class BbBox extends AbstractService {
     }
   }
 
-  async execute(service, cmd) {
-    const some = service[cmd];
-    shell.pushd(service.cwd);
-    if (_.isFunction(some)) {
-      await some(this.createContext(service));
-    } else {
-      //TODO if string execute as binary
+  async run(params) {
+    params = this.params(params, {
+      service: serviceSchema,
+      op: Joi.string()
+    });
+
+    const {service} = params;
+
+    const canRun = _.get(service, 'run.' + params.op);
+    if (!_.isUndefined(canRun) && !canRun) {
+      this.logger.log({
+        level: 'info',
+        msg: 'Op not allowed'
+      });
+      return;
     }
-    shell.popd();
+
+    const runtime = await this.getRuntime(service);
+    await runtime.run({
+      service,
+      op: params.op
+    });
   }
 
-  createContext(service) {
-    let execFormat;
-    if (this.options.execFormat) {
-      execFormat = this.options.execFormat.replace('SERVICE_NAME', service.name);
+  async discover(cwd) {
+    if (!cwd) {
+      cwd = this.options.cwd;
     }
-    return {
-      name: service.name,
-      cwd: service.cwd,
-      shell: shell,
-      exec: (cmd) => {
-        if (execFormat) {
-          cmd = execFormat.replace('CMD', cmd);
-        }
-        return shell.exec(cmd, {
-          //async: true //TODO
-          silent: false
-        });
-      },
-      prompt: function() {
-        return inquirer.prompt.apply(inquirer.prompt, arguments);
-      },
-      log: console.log, //XXX
-      warn: console.warn //XXX
+
+    let services = await this.discoverServices(cwd);
+
+    let ret = {};
+    const filePath = cwd + '/bb-box.js';
+    if (this.shell.test('-f', filePath)) {
+      ret = this.loadServiceFile(filePath);
+      if (ret.services) {
+        ret.services = _.defaultsDeep({}, ret.services, services);
+      }
     }
+
+    // console.log('Discovered services'); //XXX
+    // console.log(services); //XXX
+
+    return ret;
   }
 
-  discover() {
-    let serviceManager;
+  loadServiceFile(p) {
+    const dir = path.dirname(p);
 
-    if (shell.test('-f', './docker-compose.yml')) {
-      serviceManager = 'docker-compose';
+    this.shell.pushd(dir);
+    const file = require(p);
+    this.shell.popd();
+
+    file.cwd = dir;
+
+    if (!file.name) {
+      file.name = path.basename(dir);
     }
 
+    return file;
+  }
+
+  async discoverServices(cwd) {
     const paths = globby.sync('*/bb-box.js', {
-      cwd: this.options.cwd,
+      cwd: cwd,
       absolute: true
     });
 
-    const services = paths.map((p) => {
-      const dir = path.dirname(p);
-
-      shell.pushd(dir);
-      const file = require(p);
-      shell.popd();
-
-      file.cwd = dir;
-      file.name = path.basename(dir);
-      return file;
-    });
-
-    return {
-      serviceManager,
-      services
+    const services = {};
+    for (const p of paths) {
+      const file = this.loadServiceFile(p);
+      services[file.name] = file;
     }
+
+    const pluginServices = await this.runPlugins('discoverServices');
+
+    //TODO do some magic to merge/select values from discovered plugin services
+    _.defaultsDeep(services, pluginServices);
+
+    return services;
+  }
+
+  /**
+   * Must return something what can be deepMerged
+   *
+   * @param hook
+   * @returns {Promise.<void>}
+   */
+  async runPlugins(hook) {
+    const ret = {};
+
+    for (const plugin of this.plugins) {
+      if (!_.isFunction(plugin[hook])) {
+        continue;
+      }
+
+      const x = await plugin[hook]();
+      _.defaultsDeep(ret, x);
+    }
+
+    return ret;
+  }
+
+  async getRuntime(service) {
+    const runtimeName = _.get(service, 'runtime', 'local');
+    if (!this.runtimes[runtimeName]) {
+      throw new Error(`No runtime registered ${runtimeName}`);
+    }
+
+    return this.runtimes[runtimeName];
+  }
+
+  get shell() {
+    //https://github.com/shelljs/shelljs#configsilent
+    shell.config.reset();
+    shell.config.silent = true;
+    shell.config.fatal = true;
+    //shell.config.verbose = true;
+    return shell;
   }
 }
 

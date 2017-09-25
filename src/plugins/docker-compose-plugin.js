@@ -1,0 +1,87 @@
+const {AbstractService, Joi} = require('@kapitchi/bb-service');
+const YAML = require('yamljs');
+const _ = require('lodash');
+const shell = require('shelljs');
+
+class DockerComposePlugin extends AbstractService {
+  constructor() {
+    super();
+
+    //check if docker-compose is available on local system
+    this.shell.exec('docker-compose --version', {silent: true});
+  }
+
+  register(box) {
+    box.runtimes['docker-compose'] = this;
+  }
+
+  async run(params) {
+    const {service, op} = this.params(params, {
+      service: Joi.object(),
+      op: Joi.string()
+    });
+
+    switch(op) {
+      case 'install':
+        this.shell.exec(`docker-compose run --rm ${service.dockerImageName} bb-box ${op}`);
+        break;
+      case 'update':
+        this.shell.exec(`docker-compose run --rm ${service.dockerImageName} bb-box ${op}`);
+        break;
+      case 'start':
+        this.shell.exec(`docker-compose up -d ${service.dockerImageName}`);
+        break;
+      case 'stop':
+        this.shell.exec(`docker-compose stop ${service.dockerImageName}`);
+        break;
+      default:
+        console.log('DockerComposePlugin: Not supported operation ' + op); //XXX
+    }
+  }
+
+  discoverServices() {
+    try {
+      const compose = YAML.load('docker-compose.yml');
+      const ret = {};
+      for (const serviceName in compose.services) {
+        const service = compose.services[serviceName];
+
+        const def = _.omitBy({
+          name: serviceName,
+          dockerImageName: serviceName,
+          runtime: 'docker-compose',
+          dependsOn: service.depends_on
+        }, _.isUndefined);
+
+        const managed = !!service.build;
+        if (!managed) {
+          def.run = {
+            install: false,
+            update: false,
+            start: true,
+            stop: true
+          };
+        }
+
+        ret[serviceName] = def
+      }
+
+      return ret;
+    } catch(e) {
+      if (e.code !== 'ENOENT') {
+        throw e;
+      }
+      return {};
+    }
+  }
+
+  get shell() {
+    shell.config.reset();
+    //shell.config.silent = true;
+    shell.config.fatal = true;
+
+    return shell;
+  }
+}
+
+module.exports = DockerComposePlugin;

@@ -18,7 +18,8 @@
     "inquirer": "^3.3.0",
     "joi": "^11.0.2",
     "lodash": "^4.17.4",
-    "shelljs": "^0.7.8"
+    "shelljs": "^0.7.8",
+    "yamljs": "^0.3.0"
   },
   "files": [
     "bin",

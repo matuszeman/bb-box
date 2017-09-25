@@ -1,12 +1,23 @@
 #!/usr/bin/env node
 const BbBox = require('../src/bb-box');
+const DockerComposePlugin = require('../src/plugins/docker-compose-plugin');
 
-function createBox(params) {
-  const bbBox = new BbBox(params);
-  bbBox.setLogger({
+function createBox(cmd) {
+  const box = new BbBox({
+    exec: cmd.exec
+  });
+
+  //TODO
+  try {
+    box.addPlugin(new DockerComposePlugin());
+  } catch(e) {
+    console.log('DockerComposePlugin not available'); //XXX
+  }
+
+  box.setLogger({
     log: (entry) => console.log(entry.msg)
   });
-  return bbBox;
+  return box;
 }
 
 function handleAsync(promise) {
@@ -19,27 +30,37 @@ function handleAsync(promise) {
 
 function createCommand(cmd) {
   return program.command(cmd)
-    .option('--exec-format <format>', 'ctx.exec() format. Example: docker-compose run --rm SERVICE_NAME CMD')
+    .option('--exec <format>', 'ctx.exec() format. Example: docker-compose run --rm SERVICE_NAME CMD')
 }
 
 const program = require('commander');
 program
   .version(require('../package.json').version);
 
-createCommand('init [services...]')
+createCommand('install [services...]')
   .action(function(services, cmd) {
-    handleAsync(createBox({
-      execFormat: cmd.execFormat
-    }).init({
+    handleAsync(createBox(cmd).install({
       services,
     }));
   });
 
 createCommand('update [services...]')
   .action(function(services, cmd) {
-    handleAsync(createBox({
-      execFormat: cmd.execFormat
-    }).update({
+    handleAsync(createBox(cmd).update({
+      services
+    }));
+  });
+
+createCommand('start [services...]')
+  .action(function(services, cmd) {
+    handleAsync(createBox(cmd).start({
+      services
+    }));
+  });
+
+createCommand('stop [services...]')
+  .action(function(services, cmd) {
+    handleAsync(createBox(cmd).stop({
       services
     }));
   });
