@@ -2,7 +2,6 @@ const _ = require('lodash');
 const globby = require('globby');
 const path = require('path');
 const {AbstractService, Joi} = require('@kapitchi/bb-service');
-const inquirer = require('inquirer');
 const shell = require('shelljs');
 const RuntimeLocal = require('./runtime-local');
 

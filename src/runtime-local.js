@@ -1,6 +1,7 @@
 const {AbstractService, Joi} = require('@kapitchi/bb-service');
 const _ = require('lodash');
 const shell = require('shelljs');
+const inquirer = require('inquirer');
 
 class RuntimeLocal extends AbstractService {
   async run(params) {
