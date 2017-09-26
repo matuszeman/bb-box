@@ -70,6 +70,11 @@ class BbBox extends AbstractService {
     return this.runOp(params);
   }
 
+  async reset(params) {
+    params.op = 'reset';
+    return this.runOp(params);
+  }
+
   async status(params) {
     params = this.params(params, {
       services: Joi.array()
@@ -82,7 +87,7 @@ class BbBox extends AbstractService {
 
   async runOp(params) {
     params = this.params(params, {
-      op: Joi.string().allow('install', 'update', 'start', 'stop'),
+      op: Joi.string().allow('install', 'update', 'start', 'stop', 'reset'),
       services: Joi.array().optional()
     });
 
@@ -121,7 +126,7 @@ class BbBox extends AbstractService {
   async run(params) {
     params = this.params(params, {
       service: serviceSchema,
-      op: Joi.string().allow('install', 'update', 'start', 'stop'),
+      op: Joi.string().allow('install', 'update', 'start', 'stop', 'reset'),
       ctx: Joi.object()
     });
 

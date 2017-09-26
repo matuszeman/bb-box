@@ -22,7 +22,7 @@ class RuntimeLocal extends AbstractService {
     }
 
     //run sync
-    if (op === 'install' || op === 'update') {
+    if (_.includes(['install', 'update', 'reset'], op)) {
       this.shell.pushd(service.cwd);
 
       if (_.isFunction(some)) {

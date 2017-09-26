@@ -24,20 +24,8 @@ class DockerComposePlugin extends AbstractService {
 
     switch(op) {
       case 'install':
-        this.logger.log({
-          level: 'info',
-          msg: `DockerComposePlugin[${service.dockerImageName}]: START`
-        });
-
-        this.spawn('docker-compose', ['run', '--rm', service.dockerImageName, 'bb-box', op]);
-
-        this.logger.log({
-          level: 'info',
-          msg: `DockerComposePlugin[${service.dockerImageName}]: END`
-        });
-
-        break;
       case 'update':
+      case 'reset':
         this.logger.log({
           level: 'info',
           msg: `DockerComposePlugin[${service.dockerImageName}]: START`
@@ -80,6 +68,7 @@ class DockerComposePlugin extends AbstractService {
           def.run = {
             install: false,
             update: false,
+            reset: false,
             start: true,
             stop: true
           };

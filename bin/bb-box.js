@@ -79,6 +79,13 @@ createCommand('stop [services...]')
     }));
   });
 
+createCommand('reset [services...]')
+  .action(function(services, cmd) {
+    handleAsync(createBox(cmd).reset({
+      services
+    }));
+  });
+
 createCommand('status [services...]')
   .action(function(services, cmd) {
     handleAsync(createBox(cmd).status({
