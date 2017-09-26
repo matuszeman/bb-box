@@ -65,6 +65,15 @@ class BbBox extends AbstractService {
     return this.runOp(params);
   }
 
+  async status(params) {
+    params = this.params(params, {
+      services: Joi.array()
+    });
+
+    const service = await this.discover();
+    console.log(JSON.stringify(service, null, 2)); //XXX
+  }
+
   async runOp(params) {
     params = this.params(params, {
       op: Joi.string().allow('install', 'update', 'start', 'stop'),
@@ -73,9 +82,19 @@ class BbBox extends AbstractService {
 
     const service = await this.discover();
 
+    this.logger.log({
+      level: 'info',
+      msg: `[${service.name}] ${params.op}...`
+    });
+
     await this.run({
       service,
       op: params.op
+    });
+
+    this.logger.log({
+      level: 'info',
+      msg: `[${service.name}] ${params.op}...`
     });
 
     if (!service.services) {
@@ -86,7 +105,7 @@ class BbBox extends AbstractService {
 
       this.logger.log({
         level: 'info',
-        msg: `[${serviceName}] ${params.op}...`,
+        msg: `[${serviceName}] ${params.op}...`
       });
 
       await this.run({
@@ -96,7 +115,7 @@ class BbBox extends AbstractService {
 
       this.logger.log({
         level: 'info',
-        msg: `... done`,
+        msg: `... done`
       });
     }
   }
@@ -130,19 +149,15 @@ class BbBox extends AbstractService {
       cwd = this.options.cwd;
     }
 
-    let services = await this.discoverServices(cwd);
-
     let ret = {};
+
     const filePath = cwd + '/bb-box.js';
     if (this.shell.test('-f', filePath)) {
       ret = this.loadServiceFile(filePath);
-      if (ret.services) {
-        ret.services = _.defaultsDeep({}, ret.services, services);
-      }
     }
 
-    // console.log('Discovered services'); //XXX
-    // console.log(services); //XXX
+    let services = await this.discoverServices(cwd);
+    ret.services = _.defaultsDeep({}, ret.services, services);
 
     return ret;
   }

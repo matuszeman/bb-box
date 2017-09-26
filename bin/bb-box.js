@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 const BbBox = require('../src/bb-box');
 const DockerComposePlugin = require('../src/plugins/docker-compose-plugin');
+const GitPlugin = require('../src/plugins/git-plugin');
 
 function createBox(cmd) {
   const box = new BbBox({
@@ -14,6 +15,13 @@ function createBox(cmd) {
   } catch(e) {
     console.error('DockerComposePlugin: disabled - no docker-compose installed'); //XXX
   }
+
+  // try {
+  //   box.addPlugin(new GitPlugin());
+  //   console.log('GitPlugin: enabled'); //XXX
+  // } catch(e) {
+  //   console.error('GitPlugin: disabled - no git installed'); //XXX
+  // }
 
   box.setLogger({
     log: (entry) => console.log(entry.msg)
@@ -63,6 +71,13 @@ createCommand('start [services...]')
 createCommand('stop [services...]')
   .action(function(services, cmd) {
     handleAsync(createBox(cmd).stop({
+      services
+    }));
+  });
+
+createCommand('status [services...]')
+  .action(function(services, cmd) {
+    handleAsync(createBox(cmd).status({
       services
     }));
   });

@@ -52,6 +52,7 @@ class RuntimeLocal extends AbstractService {
 
   get shell() {
     shell.config.reset();
+    shell.config.silent = true;
     return shell;
   }
 }
