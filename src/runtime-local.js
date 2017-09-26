@@ -2,6 +2,8 @@ const {AbstractService, Joi} = require('@kapitchi/bb-service');
 const _ = require('lodash');
 const shell = require('shelljs');
 const inquirer = require('inquirer');
+const blubird = require('bluebird');
+const pm2 = blubird.promisifyAll(require('pm2'));
 
 class RuntimeLocal extends AbstractService {
   async run(params) {
@@ -9,18 +11,93 @@ class RuntimeLocal extends AbstractService {
       service: Joi.object(),
       op: Joi.string()
     });
-    const some = service[op];
 
-    this.shell.pushd(service.cwd);
-    if (_.isFunction(some)) {
-      await some(this.createContext(service));
-    } else if (_.isString(some)) {
-      this.shell.exec(some);
-    } else {
-      console.log(`[${service.name}] No ${op} operation`); //XXX
-      //TODO if string execute as binary
+    const some = service[op];
+    if (_.isUndefined(some) && op !== 'stop') {
+      this.logger.log({
+        level: 'warn',
+        msg: `[${service.name}] no "${op}" op`
+      });
+      return;
     }
-    this.shell.popd();
+
+    //run sync
+    if (op === 'install' || op === 'update') {
+      this.shell.pushd(service.cwd);
+
+      if (_.isFunction(some)) {
+        await some(this.createContext(service));
+      } else if (_.isString(some)) {
+        this.shell.exec(some, {silent: false});
+      } else {
+        console.log(`[${service.name}] No ${op} operation`); //XXX
+        //TODO if string execute as binary
+      }
+
+      this.shell.popd();
+      return;
+    }
+
+    // we use pm2 to start/stop processes
+    //http://pm2.keymetrics.io/docs/usage/pm2-api/
+    const pm2 = await this.pm2();
+    try {
+      if (op === 'start') {
+        if (_.isString(some)) {
+          const ret = await pm2.startAsync({
+            name: service.name,
+            script: some,
+            cwd: service.cwd,
+            force: true
+          });
+          this.logger.log({
+            level: 'info',
+            msg: `${service.name} PM2 process started`,
+          });
+        } else if (_.isObject(some)) {
+          _.defaults(some, {
+            name: service.name,
+            cwd: service.cwd,
+          });
+
+          some.force = true;
+
+          // try {
+          //   await pm2.deleteAsync(service.name);
+          // } catch(e) {
+          //   //ignore delete errors
+          // }
+
+          const ret = await pm2.startAsync(some);
+          if (_.isEmpty(ret)) {
+            throw new Error('Could not start PM2 process');
+          }
+          this.logger.log({
+            level: 'info',
+            msg: `${service.name} PM2 process started`,
+          });
+        } else {
+          throw new Error('start options needs to be either string or object');
+        }
+      } else if (op === 'stop') {
+        try {
+          await pm2.stopAsync(service.name);
+        } catch (e) {
+          if (e.message !== 'process name not found') {
+            throw e;
+          }
+
+          this.logger.log({
+            level: 'warn',
+            msg: `${service.name} PM2 process does not exist`,
+          });
+        }
+      } else {
+        throw new Error('N/I: operation: ' + op);
+      }
+    } finally {
+      this.pm2Disconnect();
+    }
   }
 
   createContext(service) {
@@ -48,6 +125,16 @@ class RuntimeLocal extends AbstractService {
       log: console.log, //XXX
       warn: console.warn //XXX
     }
+  }
+
+  async pm2() {
+    await pm2.connectAsync();
+    return pm2;
+  }
+
+  pm2Disconnect() {
+    pm2.disconnect();
+    return pm2;
   }
 
   get shell() {

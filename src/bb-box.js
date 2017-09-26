@@ -26,6 +26,11 @@ class BbBox extends AbstractService {
     };
   }
 
+  setLogger(logger) {
+    super.setLogger(logger);
+    this.runtimes.local.setLogger(logger);
+  }
+
   /**
    *
    * @param plugin
@@ -100,7 +105,13 @@ class BbBox extends AbstractService {
     if (!service.services) {
       return;
     }
-    for (const serviceName in service.services) {
+
+    let serviceNames = _.keys(service.services);
+    if (!_.isEmpty(params.services)) {
+      serviceNames = _.intersection(serviceNames, params.services);
+    }
+
+    for (const serviceName of serviceNames) {
       const subService = service.services[serviceName];
 
       this.logger.log({

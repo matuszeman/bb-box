@@ -54,8 +54,8 @@ class DockerComposePlugin extends AbstractService {
           dependsOn: service.depends_on
         }, _.isUndefined);
 
-        const managed = !!service.build;
-        if (!managed) {
+        const localService = !!service.build;
+        if (!localService) {
           def.run = {
             install: false,
             update: false,
