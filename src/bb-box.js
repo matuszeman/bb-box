@@ -127,7 +127,7 @@ class BbBox extends AbstractService {
 
     const {service, ctx} = params;
 
-    if (ctx.ran[service.name]) {
+    if (ctx.ran[service.name + params.op]) {
       return;
     }
 
@@ -143,10 +143,19 @@ class BbBox extends AbstractService {
           op: params.op,
           ctx: ctx
         });
+
+        //start peer services for install/update
+        if (params.op === 'install' || params.op === 'update') {
+          await this.run({
+            service: peerService,
+            op: 'start',
+            ctx: ctx
+          });
+        }
       }
     }
 
-    ctx.ran[service.name] = true;
+    ctx.ran[service.name + params.op] = true;
 
     const canRun = _.get(service, 'run.' + params.op);
     if (!_.isUndefined(canRun) && !canRun) {
@@ -201,7 +210,15 @@ class BbBox extends AbstractService {
     const dir = path.dirname(p);
 
     this.shell.pushd(dir);
+
     const file = require(p);
+
+    const localPath = dir + '/bb-box.local.js';
+    if (this.shell.test('-f', localPath)) {
+      const local = require(localPath);
+      _.merge(file, local);
+    }
+
     this.shell.popd();
 
     file.cwd = dir;
