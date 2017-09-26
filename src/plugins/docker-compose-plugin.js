@@ -2,6 +2,7 @@ const {AbstractService, Joi} = require('@kapitchi/bb-service');
 const YAML = require('yamljs');
 const _ = require('lodash');
 const shell = require('shelljs');
+const { spawnSync } = require('child_process');
 
 class DockerComposePlugin extends AbstractService {
   constructor() {
@@ -23,16 +24,16 @@ class DockerComposePlugin extends AbstractService {
 
     switch(op) {
       case 'install':
-        this.shell.exec(`docker-compose run --rm ${service.dockerImageName} bb-box ${op}`);
+        this.spawn('docker-compose', ['run', '--rm', service.dockerImageName, 'bb-box', op]);
         break;
       case 'update':
-        this.shell.exec(`docker-compose run --rm ${service.dockerImageName} bb-box ${op}`);
+        this.spawn('docker-compose', ['run', '--rm', service.dockerImageName, 'bb-box', op]);
         break;
       case 'start':
-        this.shell.exec(`docker-compose up -d ${service.dockerImageName}`);
+        this.spawn('docker-compose', ['up', '-d', service.dockerImageName]);
         break;
       case 'stop':
-        this.shell.exec(`docker-compose stop ${service.dockerImageName}`);
+        this.spawn('docker-compose', ['stop', service.dockerImageName]);
         break;
       default:
         console.log('DockerComposePlugin: Not supported operation ' + op); //XXX
@@ -75,9 +76,18 @@ class DockerComposePlugin extends AbstractService {
     }
   }
 
+  spawn(cmd, args) {
+    const ret = spawnSync(cmd, args, {
+      stdio: 'inherit'
+    });
+    if (ret.status !== 0) {
+      throw new Error('spawn error');
+    }
+  }
+
   get shell() {
     shell.config.reset();
-    //shell.config.silent = true;
+    shell.config.silent = true;
     shell.config.fatal = true;
 
     return shell;

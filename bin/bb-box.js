@@ -10,8 +10,9 @@ function createBox(cmd) {
   //TODO
   try {
     box.addPlugin(new DockerComposePlugin());
+    console.log('DockerComposePlugin: enabled'); //XXX
   } catch(e) {
-    console.log('DockerComposePlugin not available'); //XXX
+    console.error('DockerComposePlugin: disabled - no docker-compose installed'); //XXX
   }
 
   box.setLogger({
@@ -25,6 +26,7 @@ function handleAsync(promise) {
     console.log('bb-box: All done.'); //XXX
   }).catch((err) => {
     console.error('bb-box error: ', err); //XXX
+    process.exitCode = 1;
   })
 }
 
