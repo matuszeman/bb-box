@@ -24,10 +24,31 @@ class DockerComposePlugin extends AbstractService {
 
     switch(op) {
       case 'install':
+        this.logger.log({
+          level: 'info',
+          msg: `DockerComposePlugin[${service.dockerImageName}]: START`
+        });
+
         this.spawn('docker-compose', ['run', '--rm', service.dockerImageName, 'bb-box', op]);
+
+        this.logger.log({
+          level: 'info',
+          msg: `DockerComposePlugin[${service.dockerImageName}]: END`
+        });
+
         break;
       case 'update':
+        this.logger.log({
+          level: 'info',
+          msg: `DockerComposePlugin[${service.dockerImageName}]: START`
+        });
+
         this.spawn('docker-compose', ['run', '--rm', service.dockerImageName, 'bb-box', op]);
+
+        this.logger.log({
+          level: 'info',
+          msg: `DockerComposePlugin[${service.dockerImageName}]: END`
+        });
         break;
       case 'start':
         this.spawn('docker-compose', ['up', '-d', service.dockerImageName]);
@@ -36,7 +57,7 @@ class DockerComposePlugin extends AbstractService {
         this.spawn('docker-compose', ['stop', service.dockerImageName]);
         break;
       default:
-        console.log('DockerComposePlugin: Not supported operation ' + op); //XXX
+        throw new Error('DockerComposePlugin: Not supported operation ' + op);
     }
   }
 

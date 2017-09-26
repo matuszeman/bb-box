@@ -4,16 +4,23 @@ const DockerComposePlugin = require('../src/plugins/docker-compose-plugin');
 const GitPlugin = require('../src/plugins/git-plugin');
 
 function createBox(cmd) {
+  const logger = {
+    log: (entry) => console.log(entry.msg)
+  };
+
   const box = new BbBox({
     exec: cmd.exec
   });
+  box.setLogger(logger);
 
   //TODO
   try {
-    box.addPlugin(new DockerComposePlugin());
+    const plugin = new DockerComposePlugin();
+    plugin.setLogger(logger);
+    box.addPlugin(plugin);
     console.log('DockerComposePlugin: enabled'); //XXX
   } catch(e) {
-    console.error('DockerComposePlugin: disabled - no docker-compose installed'); //XXX
+    console.warn('DockerComposePlugin: disabled - no docker-compose installed'); //XXX
   }
 
   // try {
@@ -23,9 +30,6 @@ function createBox(cmd) {
   //   console.error('GitPlugin: disabled - no git installed'); //XXX
   // }
 
-  box.setLogger({
-    log: (entry) => console.log(entry.msg)
-  });
   return box;
 }
 

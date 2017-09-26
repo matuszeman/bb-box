@@ -76,7 +76,8 @@ class BbBox extends AbstractService {
     });
 
     const service = await this.discover();
-    console.log(JSON.stringify(service, null, 2)); //XXX
+    console.log(service); //XXX
+    //console.log(JSON.stringify(service, null, 2)); //XXX
   }
 
   async runOp(params) {
@@ -87,19 +88,14 @@ class BbBox extends AbstractService {
 
     const service = await this.discover();
 
-    this.logger.log({
-      level: 'info',
-      msg: `[${service.name}] ${params.op}...`
-    });
+    const ctx = {
+      ran: {}
+    };
 
     await this.run({
       service,
-      op: params.op
-    });
-
-    this.logger.log({
-      level: 'info',
-      msg: `[${service.name}] ${params.op}...`
+      op: params.op,
+      ctx
     });
 
     if (!service.services) {
@@ -114,19 +110,10 @@ class BbBox extends AbstractService {
     for (const serviceName of serviceNames) {
       const subService = service.services[serviceName];
 
-      this.logger.log({
-        level: 'info',
-        msg: `[${serviceName}] ${params.op}...`
-      });
-
       await this.run({
         service: subService,
-        op: params.op
-      });
-
-      this.logger.log({
-        level: 'info',
-        msg: `... done`
+        op: params.op,
+        ctx
       });
     }
   }
@@ -134,24 +121,56 @@ class BbBox extends AbstractService {
   async run(params) {
     params = this.params(params, {
       service: serviceSchema,
-      op: Joi.string()
+      op: Joi.string().allow('install', 'update', 'start', 'stop'),
+      ctx: Joi.object()
     });
 
-    const {service} = params;
+    const {service, ctx} = params;
+
+    if (ctx.ran[service.name]) {
+      return;
+    }
+
+    if (!_.isEmpty(service.dependsOn)) {
+      for (const dep of service.dependsOn) {
+        const peerService = _.get(service, `parent.services.${dep}`);
+        if (!peerService) {
+          throw new Error(`Unknown peer service ${dep} of ${service.name}`);
+        }
+
+        await this.run({
+          service: peerService,
+          op: params.op,
+          ctx: ctx
+        });
+      }
+    }
+
+    ctx.ran[service.name] = true;
 
     const canRun = _.get(service, 'run.' + params.op);
     if (!_.isUndefined(canRun) && !canRun) {
       this.logger.log({
         level: 'info',
-        msg: 'Op not allowed'
+        msg: `[${service.name}] Skipping ${params.op}`
       });
       return;
     }
+
+    this.logger.log({
+      level: 'info',
+      msg: `[${service.name}] ${params.op}...`
+    });
 
     const runtime = await this.getRuntime(service);
     await runtime.run({
       service,
       op: params.op
+    });
+
+    this.logger.log({
+      level: 'info',
+      msg: `[${service.name}] ... done`
     });
   }
 
@@ -169,6 +188,11 @@ class BbBox extends AbstractService {
 
     let services = await this.discoverServices(cwd);
     ret.services = _.defaultsDeep({}, ret.services, services);
+
+    //assign parent
+    for (const name in ret.services) {
+      ret.services[name].parent = ret;
+    }
 
     return ret;
   }
