@@ -21,6 +21,8 @@ class RuntimeLocal extends AbstractService {
       return;
     }
 
+    const env = _.defaults({}, service.env);
+
     //run sync
     if (_.includes(['install', 'update', 'reset'], op)) {
       this.shell.pushd(service.cwd);
@@ -28,7 +30,7 @@ class RuntimeLocal extends AbstractService {
       if (_.isFunction(some)) {
         await some(this.createContext(service));
       } else if (_.isString(some)) {
-        this.shell.exec(some, {silent: false});
+        this.shell.exec(some, {silent: false, env});
       } else {
         console.log(`[${service.name}] No ${op} operation`); //XXX
         //TODO if string execute as binary
@@ -48,7 +50,8 @@ class RuntimeLocal extends AbstractService {
             name: service.name,
             script: some,
             cwd: service.cwd,
-            force: true
+            force: true,
+            env,
           });
           this.logger.log({
             level: 'info',
@@ -58,6 +61,7 @@ class RuntimeLocal extends AbstractService {
           _.defaults(some, {
             name: service.name,
             cwd: service.cwd,
+            env,
           });
 
           some.force = true;

@@ -206,6 +206,7 @@ class BbBox extends AbstractService {
     //assign parent
     for (const name in ret.services) {
       ret.services[name].parent = ret;
+      ret.services[name].env = _.defaults({}, ret.services[name].env, ret.globalEnv);
     }
 
     return ret;

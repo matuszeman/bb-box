@@ -31,7 +31,9 @@ class DockerComposePlugin extends AbstractService {
           msg: `DockerComposePlugin[${service.dockerImageName}]: START`
         });
 
-        this.spawn('docker-compose', ['run', '--rm', service.dockerImageName, 'bb-box', op]);
+        this.spawn('docker-compose', ['run', '--rm', service.dockerImageName, 'bb-box', op], {
+          env: service.env
+        });
 
         this.logger.log({
           level: 'info',
@@ -39,10 +41,14 @@ class DockerComposePlugin extends AbstractService {
         });
         break;
       case 'start':
-        this.spawn('docker-compose', ['up', '-d', service.dockerImageName]);
+        this.spawn('docker-compose', ['up', '-d', service.dockerImageName], {
+          env: service.env
+        });
         break;
       case 'stop':
-        this.spawn('docker-compose', ['stop', service.dockerImageName]);
+        this.spawn('docker-compose', ['stop', service.dockerImageName], {
+          env: service.env
+        });
         break;
       default:
         throw new Error('DockerComposePlugin: Not supported operation ' + op);
@@ -86,11 +92,13 @@ class DockerComposePlugin extends AbstractService {
     }
   }
 
-  spawn(cmd, args) {
-    const ret = spawnSync(cmd, args, {
-      stdio: 'inherit'
-    });
+  spawn(cmd, args, opts) {
+    const ret = spawnSync(cmd, args, _.defaults({
+      stdio: 'inherit',
+      shell: true
+    }, opts));
     if (ret.status !== 0) {
+      console.log(ret); //XXX
       throw new Error('spawn error');
     }
   }
