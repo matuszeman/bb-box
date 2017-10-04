@@ -2,6 +2,7 @@ const {AbstractService, Joi} = require('@kapitchi/bb-service');
 const YAML = require('yamljs');
 const _ = require('lodash');
 const shell = require('shelljs');
+const Docker = require('dockerode');
 const { spawnSync } = require('child_process');
 
 class DockerComposePlugin extends AbstractService {
@@ -10,6 +11,8 @@ class DockerComposePlugin extends AbstractService {
 
     //check if docker-compose is available on local system
     this.shell.exec('docker-compose --version', {silent: true});
+
+    this.docker = new Docker();
   }
 
   register(box) {
@@ -17,10 +20,13 @@ class DockerComposePlugin extends AbstractService {
   }
 
   async run(params) {
-    const {service, op} = this.params(params, {
+    this.params(params, {
       service: Joi.object(),
       op: Joi.string()
     });
+
+    //we don't do `params = this.params(...)` as we want original reference of the service
+    const {service, op} = params;
 
     switch(op) {
       case 'install':
@@ -49,6 +55,16 @@ class DockerComposePlugin extends AbstractService {
         this.spawn('docker-compose', ['stop', service.dockerImageName], {
           env: service.env
         });
+        break;
+      case 'status':
+        const containers = await this.docker.listContainers();
+        const container = _.find(containers, (cnt) => {
+          return cnt.Labels['com.docker.compose.service'] === service.dockerImageName;
+        });
+        service.state = undefined;
+        if (container) {
+          service.state = container.State;
+        }
         break;
       default:
         throw new Error('DockerComposePlugin: Not supported operation ' + op);

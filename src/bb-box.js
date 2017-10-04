@@ -76,18 +76,13 @@ class BbBox extends AbstractService {
   }
 
   async status(params) {
-    params = this.params(params, {
-      services: Joi.array()
-    });
-
-    const service = await this.discover();
-    console.log(service); //XXX
-    //console.log(JSON.stringify(service, null, 2)); //XXX
+    params.op = 'status';
+    return this.runOp(params);
   }
 
   async runOp(params) {
     params = this.params(params, {
-      op: Joi.string().allow('install', 'update', 'start', 'stop', 'reset'),
+      op: Joi.string().allow('install', 'update', 'start', 'stop', 'reset', 'status'),
       services: Joi.array().optional()
     });
 
@@ -121,16 +116,19 @@ class BbBox extends AbstractService {
         ctx
       });
     }
+
+    this.outputInfo(service);
   }
 
   async run(params) {
-    params = this.params(params, {
+    this.params(params, {
       service: serviceSchema,
-      op: Joi.string().allow('install', 'update', 'start', 'stop', 'reset'),
+      op: Joi.string().allow('install', 'update', 'start', 'stop', 'reset', 'status'),
       ctx: Joi.object()
     });
 
-    const {service, ctx} = params;
+    //we don't do `params = this.params(...)` as we want original reference of the service
+    const {service, op, ctx} = params;
 
     if (ctx.ran[service.name + params.op]) {
       return;
@@ -163,17 +161,18 @@ class BbBox extends AbstractService {
     ctx.ran[service.name + params.op] = true;
 
     const canRun = _.get(service, 'run.' + params.op);
+    const serviceName = `[${service.name}@${service.runtime}]`;
     if (!_.isUndefined(canRun) && !canRun) {
       this.logger.log({
         level: 'info',
-        msg: `[${service.name}] Skipping ${params.op}`
+        msg: `${serviceName} Skipping ${params.op}`
       });
       return;
     }
 
     this.logger.log({
       level: 'info',
-      msg: `[${service.name}] ${params.op}...`
+      msg: `${serviceName} ${params.op}...`
     });
 
     const runtime = await this.getRuntime(service);
@@ -184,7 +183,7 @@ class BbBox extends AbstractService {
 
     this.logger.log({
       level: 'info',
-      msg: `[${service.name}] ... done`
+      msg: `${serviceName} ... done`
     });
   }
 
@@ -212,6 +211,22 @@ class BbBox extends AbstractService {
     return ret;
   }
 
+  outputInfo(service) {
+    console.log(`${service.name}: ${service.state}`); //XXX
+
+    if (!service.services) {
+      this.logger.log({
+        level: 'info',
+        msg: `${service.name}: ${service.state}`
+      });
+      return;
+    }
+
+    for (const childService of Object.values(service.services)) {
+      this.outputInfo(childService);
+    }
+  }
+
   loadServiceFile(p) {
     const dir = path.dirname(p);
 
@@ -232,6 +247,10 @@ class BbBox extends AbstractService {
     if (!file.name) {
       file.name = path.basename(dir);
     }
+
+    _.defaults(file, {
+      runtime: 'local'
+    });
 
     return file;
   }

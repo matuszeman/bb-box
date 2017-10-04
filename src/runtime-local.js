@@ -7,24 +7,27 @@ const pm2 = blubird.promisifyAll(require('pm2'));
 
 class RuntimeLocal extends AbstractService {
   async run(params) {
-    const {service, op} = this.params(params, {
+    this.params(params, {
       service: Joi.object(),
       op: Joi.string()
     });
 
-    const some = service[op];
-    if (_.isUndefined(some) && op !== 'stop') {
-      this.logger.log({
-        level: 'warn',
-        msg: `[${service.name}] no "${op}" op`
-      });
-      return;
-    }
-
-    const env = _.defaults({}, service.env);
+    //need references not clones so we don't do `params = this.params()`
+    const {service, op} = params;
 
     //run sync
     if (_.includes(['install', 'update', 'reset'], op)) {
+      const some = service[op];
+      if (_.isUndefined(some)) {
+        this.logger.log({
+          level: 'warn',
+          msg: `[${service.name}] no "${op}" op`
+        });
+        return;
+      }
+
+      const env = _.defaults({}, service.env);
+
       this.shell.pushd(service.cwd);
 
       if (_.isFunction(some)) {
@@ -96,6 +99,12 @@ class RuntimeLocal extends AbstractService {
             msg: `${service.name} PM2 process does not exist`,
           });
         }
+      } else if (op === 'status') {
+        const x = await pm2.describeAsync(service.name);
+        service.state = undefined;
+        if (!_.isEmpty(x)) {
+          service.state = x[0].pm2_env.status;
+        };
       } else {
         throw new Error('N/I: operation: ' + op);
       }

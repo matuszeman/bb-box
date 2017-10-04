@@ -15,6 +15,7 @@
     "@kapitchi/bb-service": "^1.4.0",
     "bluebird": "^3.5.0",
     "commander": "^2.11.0",
+    "dockerode": "^2.5.1",
     "globby": "^6.1.0",
     "inquirer": "^3.3.0",
     "joi": "^11.0.2",
