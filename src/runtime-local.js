@@ -15,9 +15,12 @@ class RuntimeLocal extends AbstractService {
     //need references not clones so we don't do `params = this.params()`
     const {service, op} = params;
 
+    const some = service[op];
+    const env = _.defaults({}, service.env);
+
     //run sync
     if (_.includes(['install', 'update', 'reset'], op)) {
-      const some = service[op];
+
       if (_.isUndefined(some)) {
         this.logger.log({
           level: 'warn',
@@ -25,8 +28,6 @@ class RuntimeLocal extends AbstractService {
         });
         return;
       }
-
-      const env = _.defaults({}, service.env);
 
       this.shell.pushd(service.cwd);
 
