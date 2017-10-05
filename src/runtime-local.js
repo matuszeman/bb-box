@@ -6,6 +6,11 @@ const blubird = require('bluebird');
 const pm2 = blubird.promisifyAll(require('pm2'));
 
 class RuntimeLocal extends AbstractService {
+  constructor() {
+    super();
+    this.pm2 = null;
+  }
+
   async run(params) {
     this.params(params, {
       service: Joi.object(),
@@ -15,11 +20,16 @@ class RuntimeLocal extends AbstractService {
     //need references not clones so we don't do `params = this.params()`
     const {service, op} = params;
 
+    if (_.includes(['start', 'stop', 'status'], op)) {
+      return await this.runPm2(service, op);
+    }
+
     const some = service[op];
     const env = _.defaults({}, service.env);
 
     //run sync
     if (_.includes(['install', 'update', 'reset'], op)) {
+      this.shell.pushd(service.cwd);
 
       if (_.isUndefined(some)) {
         this.logger.log({
@@ -28,8 +38,6 @@ class RuntimeLocal extends AbstractService {
         });
         return;
       }
-
-      this.shell.pushd(service.cwd);
 
       if (_.isFunction(some)) {
         await some(this.createContext(service));
@@ -44,73 +52,103 @@ class RuntimeLocal extends AbstractService {
       return;
     }
 
-    // we use pm2 to start/stop processes
-    //http://pm2.keymetrics.io/docs/usage/pm2-api/
-    const pm2 = await this.pm2();
+    throw new Error(`Runtime local: Op "${op}" not implemented`);
+  }
+
+  /**
+   * we use pm2 to start/stop processes
+   * http://pm2.keymetrics.io/docs/usage/pm2-api/
+   *
+   * @param service
+   * @param op
+   * @returns {Promise.<void>}
+   */
+  async runPm2(service, op) {
+    const pm2 = await this.pm2Connect();
+
     try {
-      if (op === 'start') {
-        if (_.isString(some)) {
-          const ret = await pm2.startAsync({
-            name: service.name,
-            script: some,
-            cwd: service.cwd,
-            force: true,
-            env,
-          });
-          this.logger.log({
-            level: 'info',
-            msg: `${service.name} PM2 process started`,
-          });
-        } else if (_.isObject(some)) {
-          _.defaults(some, {
-            name: service.name,
-            cwd: service.cwd,
-            env,
-          });
+      switch (op) {
+        case 'start':
+          const some = service[op];
+          const env = _.defaults({}, service.env);
 
-          some.force = true;
+          if (_.isString(some)) {
+            const ret = await pm2.startAsync({
+              name: service.name,
+              script: some,
+              cwd: service.cwd,
+              force: true,
+              env,
+            });
+            this.logger.log({
+              level: 'info',
+              msg: `${service.name} PM2 process started`,
+            });
+          } else if (_.isObject(some)) {
+            _.defaults(some, {
+              name: service.name,
+              cwd: service.cwd,
+              env,
+            });
 
-          // try {
-          //   await pm2.deleteAsync(service.name);
-          // } catch(e) {
-          //   //ignore delete errors
-          // }
+            some.force = true;
 
-          const ret = await pm2.startAsync(some);
-          if (_.isEmpty(ret)) {
-            throw new Error('Could not start PM2 process');
+            // try {
+            //   await pm2.deleteAsync(service.name);
+            // } catch(e) {
+            //   //ignore delete errors
+            // }
+
+            const ret = await pm2.startAsync(some);
+            if (_.isEmpty(ret)) {
+              throw new Error('Could not start PM2 process');
+            }
+            this.logger.log({
+              level: 'info',
+              msg: `${service.name} PM2 process started`,
+            });
+          } else {
+            this.logger.log({
+              level: 'info',
+              msg: `${service.name} No start op`,
+            });
           }
-          this.logger.log({
-            level: 'info',
-            msg: `${service.name} PM2 process started`,
-          });
-        } else {
-          throw new Error('start options needs to be either string or object');
-        }
-      } else if (op === 'stop') {
-        try {
-          await pm2.stopAsync(service.name);
-        } catch (e) {
-          if (e.message !== 'process name not found') {
-            throw e;
+          break;
+        case 'stop':
+          try {
+            await pm2.stopAsync(service.name);
+          } catch (e) {
+            if (e.message !== 'process name not found') {
+              throw e;
+            }
+            this.logger.log({
+              level: 'warn',
+              msg: `${service.name} PM2 process does not exist`,
+            });
+          }
+          break;
+        case 'status':
+          const x = await pm2.describeAsync(service.name);
+          service.state = undefined;
+          if (!_.isEmpty(x)) {
+            service.state = x[0].pm2_env.status;
           }
 
-          this.logger.log({
-            level: 'warn',
-            msg: `${service.name} PM2 process does not exist`,
-          });
-        }
-      } else if (op === 'status') {
-        const x = await pm2.describeAsync(service.name);
-        service.state = undefined;
-        if (!_.isEmpty(x)) {
-          service.state = x[0].pm2_env.status;
-        };
-      } else {
-        throw new Error('N/I: operation: ' + op);
+          break;
       }
     } finally {
-      this.pm2Disconnect();
+      //causes problems - commented out for now
+      // bb-box/node_modules/pm2/lib/Client.js:370
+      // if (Client.client_sock.destroy)
+      //   ^
+      //
+      // TypeError: Cannot read property 'destroy' of undefined
+      // at Timeout._onTimeout (bb-box/node_modules/pm2/lib/Client.js:370:29)
+      // at ontimeout (timers.js:469:11)
+      // at tryOnTimeout (timers.js:304:5)
+      // at Timer.listOnTimeout (timers.js:264:5)
+
+      //this.pm2Disconnect();
     }
   }
 
@@ -141,14 +179,20 @@ class RuntimeLocal extends AbstractService {
     }
   }
 
-  async pm2() {
+  async pm2Connect() {
+    if (this.pm2) {
+      return this.pm2;
+    }
     await pm2.connectAsync();
-    return pm2;
+    console.log('>>> PM2 connected'); //XXX
+    return this.pm2 = pm2;
   }
 
   pm2Disconnect() {
-    pm2.disconnect();
-    return pm2;
+    if (this.pm2) {
+      this.pm2.disconnect();
+      this.pm2 = null;
+    }
   }
 
   get shell() {

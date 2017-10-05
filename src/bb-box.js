@@ -215,10 +215,10 @@ class BbBox extends AbstractService {
     console.log(`${service.name}: ${service.state}`); //XXX
 
     if (!service.services) {
-      this.logger.log({
-        level: 'info',
-        msg: `${service.name}: ${service.state}`
-      });
+      // this.logger.log({
+      //   level: 'debug',
+      //   msg: `${service.name}: No sub services`
+      // });
       return;
     }
 
