@@ -47,6 +47,7 @@ class RuntimeLocal extends AbstractService {
     //http://pm2.keymetrics.io/docs/usage/pm2-api/
     const pm2 = await this.pm2();
     try {
+      const some = service[op];
       if (op === 'start') {
         if (_.isString(some)) {
           const ret = await pm2.startAsync({
