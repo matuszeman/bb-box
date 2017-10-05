@@ -204,15 +204,19 @@ class BbBox extends AbstractService {
 
     //assign parent
     for (const name in ret.services) {
-      ret.services[name].parent = ret;
-      ret.services[name].env = _.defaults({}, ret.services[name].env, ret.globalEnv);
+      const ser = ret.services[name];
+      ser.parent = ret;
+      ser.env = _.defaults({}, ret.services[name].env, ret.globalEnv);
+      _.defaults(ser, {
+        runtime: 'local'
+      });
     }
 
     return ret;
   }
 
   outputInfo(service) {
-    console.log(`${service.name}: ${service.state}`); //XXX
+    console.log(`[${service.name}@${service.runtime}]: ${service.state}`); //XXX
 
     if (!service.services) {
       // this.logger.log({
@@ -249,7 +253,7 @@ class BbBox extends AbstractService {
     }
 
     _.defaults(file, {
-      runtime: 'local'
+      //runtime: 'local' // cannot be set here, because docker-compose service runtime won't be set
     });
 
     return file;

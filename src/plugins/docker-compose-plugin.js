@@ -96,7 +96,7 @@ class DockerComposePlugin extends AbstractService {
           };
         }
 
-        ret[serviceName] = def
+        ret[serviceName] = def;
       }
 
       return ret;
