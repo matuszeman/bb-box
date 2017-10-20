@@ -207,6 +207,7 @@ class BbBox extends AbstractService {
       const ser = ret.services[name];
       ser.parent = ret;
       ser.env = _.defaults({}, ret.services[name].env, ret.globalEnv);
+      ser.exec = _.defaults({}, ret.services[name].exec, _.get(ret, 'defaults.exec'));
       _.defaults(ser, {
         runtime: 'local'
       });

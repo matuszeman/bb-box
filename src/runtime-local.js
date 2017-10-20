@@ -25,7 +25,6 @@ class RuntimeLocal extends AbstractService {
     }
 
     const some = service[op];
-    const env = _.defaults({}, service.env);
 
     //run sync
     if (_.includes(['install', 'update', 'reset'], op)) {
@@ -40,9 +39,14 @@ class RuntimeLocal extends AbstractService {
       }
 
       if (_.isFunction(some)) {
+        const processEnv = _.clone(process.env);
+        process.env = _.defaults({}, service.env, process.env);
         await some(this.createContext(service));
+        process.env = processEnv;
       } else if (_.isString(some)) {
-        this.shell.exec(some, {silent: false, env});
+        const {cmd, opts} = this.execOpts(service, some);
+        opts.silent = false;
+        this.shell.exec(cmd, opts);
       } else {
         console.log(`[${service.name}] No ${op} operation`); //XXX
         //TODO if string execute as binary
@@ -153,29 +157,36 @@ class RuntimeLocal extends AbstractService {
   }
 
   createContext(service) {
-    let exec = _.get(this.options, 'exec', service.exec);
-    if (exec) {
-      exec = exec.replace('SERVICE_NAME', service.name);
-    }
-
     return {
       name: service.name,
       cwd: service.cwd,
       shell: this.shell,
-      exec: (cmd) => {
-        if (exec) {
-          cmd = exec.replace('CMD', cmd);
-        }
-        return this.shell.exec(cmd, {
-          //async: true //TODO
-          silent: false
-        });
+      exec: (c) => {
+        const {cmd, opts} = this.execOpts(service, c);
+        return this.shell.exec(cmd, opts);
       },
       prompt: function() {
         return inquirer.prompt.apply(inquirer.prompt, arguments);
       },
       log: console.log, //XXX
       warn: console.warn //XXX
+    }
+  }
+
+  execOpts(service, cmd) {
+    const cmdPlaceholder = '${CMD}';
+    const template = _.get(service, 'exec.template', cmdPlaceholder);
+    const env = _.defaults({}, service.env, process.env);
+    const opts = _.defaults({}, _.omit(service.exec, 'template'), {
+      //async: true //TODO
+      silent: false,
+      env
+    });
+
+    cmd = template.replace(cmdPlaceholder, cmd);
+    return {
+      cmd,
+      opts
     }
   }
 
