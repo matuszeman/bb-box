@@ -28,6 +28,9 @@ class RuntimeLocal extends AbstractService {
 
     //run sync
     if (_.includes(['install', 'update', 'reset'], op)) {
+      const processEnv = _.clone(process.env);
+      process.env = _.defaults({}, service.env, process.env);
+
       this.shell.pushd(service.cwd);
 
       if (_.isUndefined(some)) {
@@ -39,10 +42,7 @@ class RuntimeLocal extends AbstractService {
       }
 
       if (_.isFunction(some)) {
-        const processEnv = _.clone(process.env);
-        process.env = _.defaults({}, service.env, process.env);
         await some(this.createContext(service));
-        process.env = processEnv;
       } else if (_.isString(some)) {
         const {cmd, opts} = this.execOpts(service, some);
         opts.silent = false;
@@ -56,6 +56,8 @@ class RuntimeLocal extends AbstractService {
       if (op === 'update') {
         await this.runMigrations(service);
       }
+
+      process.env = processEnv;
 
       this.shell.popd();
       return;
