@@ -52,11 +52,54 @@ class RuntimeLocal extends AbstractService {
         //TODO if string execute as binary
       }
 
+      //run migrations
+      if (op === 'update') {
+        await this.runMigrations(service);
+      }
+
       this.shell.popd();
       return;
     }
 
     throw new Error(`Runtime local: Op "${op}" not implemented`);
+  }
+
+  async runMigrations(service) {
+    if (!service.migrations) {
+      return;
+    }
+
+    const lastMigrationIndex = _.get(service, 'status.lastMigration', -1);
+
+    for (let migIndex in service.migrations) {
+      migIndex = parseInt(migIndex);
+      if (migIndex <= lastMigrationIndex) {
+        console.log('Skipping migration ' + migIndex); //XXX
+        continue;
+      }
+
+      const mig = service.migrations[migIndex];
+      const ctx = this.createContext(service);
+      try {
+        console.log('Running migration: ' + migIndex); //XXX
+        await mig.up(ctx);
+        service.status.lastMigration = migIndex
+        console.log('... done'); //XXX
+      } catch(e) {
+        console.error('Migration error', e); //XXX
+        if (!mig.down) {
+          console.warn('No migration down');
+          return;
+        }
+
+        try {
+          await mig.down(ctx);
+        } catch(e) {
+          console.error('Migration down error: ', e); //XXX
+          throw e;
+        }
+      }
+    }
   }
 
   /**

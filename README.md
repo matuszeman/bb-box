@@ -27,14 +27,29 @@ npm i -g @kapitchi/bb-box
 bb-box install
 ```
 
+Initialize services, create config files.
+`bb-box update` must be ran before starting the service for the first time.
+
 ```
 bb-box update
 ```
+
+Update services, run migrations
 
 ```
 bb-box start
 ```
 
+Start services
+
 ```
 bb-box stop
 ```
+
+Stop services
+
+```
+bb-box status
+```
+
+Prints service status

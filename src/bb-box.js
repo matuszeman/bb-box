@@ -1,5 +1,6 @@
 const _ = require('lodash');
 const globby = require('globby');
+const fs = require('fs');
 const path = require('path');
 const {AbstractService, Joi} = require('@kapitchi/bb-service');
 const shell = require('shelljs');
@@ -181,6 +182,20 @@ class BbBox extends AbstractService {
       op: params.op
     });
 
+    if (service.runtime === 'local' && service.status) {
+      if (!service.cwd) {
+        throw new Error('Service has no "cwd" set');
+      }
+      fs.writeFileSync(service.cwd + '/bb-box.status.json', JSON.stringify(service.status, null, 2));
+    }
+
+    // const statusPath = dir + '/bb-box.status.json';
+    // if (this.shell.test('-f', statusPath)) {
+    //   file.status = require(statusPath);
+    // } else {
+    //   file.status = {};
+    // }
+
     this.logger.log({
       level: 'info',
       msg: `${serviceName} ... done`
@@ -243,6 +258,13 @@ class BbBox extends AbstractService {
     if (this.shell.test('-f', localPath)) {
       const local = require(localPath);
       _.merge(file, local);
+    }
+
+    const statusPath = dir + '/bb-box.status.json';
+    if (this.shell.test('-f', statusPath)) {
+      file.status = require(statusPath);
+    } else {
+      file.status = {};
     }
 
     this.shell.popd();
