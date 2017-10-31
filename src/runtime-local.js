@@ -71,7 +71,7 @@ class RuntimeLocal extends AbstractService {
       return;
     }
 
-    const lastMigrationIndex = _.get(service, 'status.lastMigration', -1);
+    const lastMigrationIndex = _.get(service, 'state.lastMigration', -1);
 
     for (let migIndex in service.migrations) {
       migIndex = parseInt(migIndex);
@@ -85,7 +85,7 @@ class RuntimeLocal extends AbstractService {
       try {
         console.log('Running migration: ' + migIndex); //XXX
         await mig.up(ctx);
-        service.status.lastMigration = migIndex
+        service.state.lastMigration = migIndex
         console.log('... done'); //XXX
       } catch(e) {
         console.error('Migration error', e); //XXX
@@ -178,9 +178,9 @@ class RuntimeLocal extends AbstractService {
           break;
         case 'status':
           const x = await pm2.describeAsync(service.name);
-          service.state = undefined;
+          service.status = undefined;
           if (!_.isEmpty(x)) {
-            service.state = x[0].pm2_env.status;
+            service.status = x[0].pm2_env.status;
           }
 
           break;
