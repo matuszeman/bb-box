@@ -23,33 +23,56 @@ npm i -g @kapitchi/bb-box
 
 # Usage
 
+## Install
+
+Install services
+
 ```
 bb-box install
 ```
 
-Initialize services, create config files.
-`bb-box update` must be ran before starting the service for the first time.
+Runs:
+
+* `installDependencies`
+* `install`
+* `migrations`
+
+## Update
+
+Updates services
 
 ```
 bb-box update
 ```
 
-Update services, run migrations
+Runs:
+
+* `updateDependencies` (if not defined, installDependencies)
+* `install`
+* `migrations`
+
+## Start
+
+Start services
 
 ```
 bb-box start
 ```
 
-Start services
+
+## Stop
+
+Stop services
 
 ```
 bb-box stop
 ```
 
-Stop services
+## Service status
+
+Prints service status
 
 ```
 bb-box status
 ```
 
-Prints service status
