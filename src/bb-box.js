@@ -84,7 +84,8 @@ class BbBox extends AbstractService {
   async runOp(params) {
     params = this.params(params, {
       op: Joi.string().allow('install', 'update', 'start', 'stop', 'reset', 'status'),
-      services: Joi.array().optional()
+      services: Joi.array().optional(),
+      skipDependencies: Joi.boolean().optional().default(false)
     });
 
     const service = await this.discover();
@@ -93,28 +94,33 @@ class BbBox extends AbstractService {
       ran: {}
     };
 
-    await this.run({
-      service,
-      op: params.op,
-      ctx
-    });
-
-    if (!service.services) {
-      return;
+    let services = [];
+    if (params.services) {
+      //run on selected dependencies
+      const serviceNames = _.intersection(_.keys(service.services), params.services);
+      services = serviceNames.map(name => {
+        return service.services[name];
+      });
+    }
+    else {
+      //run for current/parent service
+      if (!params.skipDependencies) {
+        const serviceNames = _.keys(service.services);
+        //run on dependencies first
+        services = serviceNames.map(name => {
+          return service.services[name];
+        });
+      }
+      //then parent service
+      services.push(service);
     }
 
-    let serviceNames = _.keys(service.services);
-    if (!_.isEmpty(params.services)) {
-      serviceNames = _.intersection(serviceNames, params.services);
-    }
-
-    for (const serviceName of serviceNames) {
-      const subService = service.services[serviceName];
-
+    for (const ser of services) {
       await this.run({
-        service: subService,
+        service: ser,
         op: params.op,
-        ctx
+        ctx,
+        skipDependencies: params.skipDependencies
       });
     }
 
@@ -122,20 +128,20 @@ class BbBox extends AbstractService {
   }
 
   async run(params) {
-    this.params(params, {
+    //we want this by reference, this.params clones the params
+    const {service, ctx} = params;
+    params = this.params(params, {
       service: serviceSchema,
       op: Joi.string().allow('install', 'update', 'start', 'stop', 'reset', 'status'),
-      ctx: Joi.object()
+      ctx: Joi.object(),
+      skipDependencies: Joi.boolean().optional().default(false)
     });
-
-    //we don't do `params = this.params(...)` as we want original reference of the service
-    const {service, op, ctx} = params;
 
     if (ctx.ran[service.name + params.op]) {
       return;
     }
 
-    if (!_.isEmpty(service.dependsOn)) {
+    if (!params.skipDependencies && !_.isEmpty(service.dependsOn)) {
       for (const dep of service.dependsOn) {
         const peerService = _.get(service, `parent.services.${dep}`);
         if (!peerService) {
@@ -182,19 +188,12 @@ class BbBox extends AbstractService {
       op: params.op
     });
 
-    if (service.runtime === 'local' && service.status) {
+    if (service.runtime === 'local' && service.state) {
       if (!service.cwd) {
         throw new Error('Service has no "cwd" set');
       }
-      fs.writeFileSync(service.cwd + '/bb-box.status.json', JSON.stringify(service.status, null, 2));
+      fs.writeFileSync(service.cwd + '/bb-box.state.json', JSON.stringify(service.state, null, 2));
     }
-
-    // const statusPath = dir + '/bb-box.status.json';
-    // if (this.shell.test('-f', statusPath)) {
-    //   file.status = require(statusPath);
-    // } else {
-    //   file.status = {};
-    // }
 
     this.logger.log({
       level: 'info',
@@ -232,18 +231,22 @@ class BbBox extends AbstractService {
   }
 
   outputInfo(service) {
-    console.log(`[${service.name}@${service.runtime}]: ${service.state}`); //XXX
+    console.log('=============='); //XXX
+    console.log('Service status'); //XXX
+    console.log('=============='); //XXX
+    this.printServiceInfo(service);
+  }
+
+  printServiceInfo(service) {
+    console.log(service); //XXX
+    console.log(`[${service.name}@${service.runtime}]: ${service.status}`); //XXX
 
     if (!service.services) {
-      // this.logger.log({
-      //   level: 'debug',
-      //   msg: `${service.name}: No sub services`
-      // });
       return;
     }
 
     for (const childService of Object.values(service.services)) {
-      this.outputInfo(childService);
+      this.printServiceInfo(childService);
     }
   }
 
@@ -260,11 +263,11 @@ class BbBox extends AbstractService {
       _.merge(file, local);
     }
 
-    const statusPath = dir + '/bb-box.status.json';
-    if (this.shell.test('-f', statusPath)) {
-      file.status = require(statusPath);
+    const statePath = dir + '/bb-box.state.json';
+    if (this.shell.test('-f', statePath)) {
+      file.state = require(statePath);
     } else {
-      file.status = {};
+      file.state = {};
     }
 
     this.shell.popd();

@@ -44,7 +44,7 @@ function handleAsync(promise) {
 
 function createCommand(cmd) {
   return program.command(cmd)
-    .option('--exec <format>', 'ctx.exec() format. Example: docker-compose run --rm SERVICE_NAME CMD')
+    .option('--skip-dependencies', 'Skip the operation on the service dependencies')
 }
 
 const program = require('commander');
@@ -60,9 +60,15 @@ createCommand('install [services...]')
 
 createCommand('update [services...]')
   .action(function(services, cmd) {
-    handleAsync(createBox(cmd).update({
-      services
-    }));
+    const params = {
+      services,
+    };
+
+    if (cmd.skipDependencies) {
+      params.skipDependencies = true;
+    }
+
+    handleAsync(createBox(cmd).update(params));
   });
 
 createCommand('start [services...]')
