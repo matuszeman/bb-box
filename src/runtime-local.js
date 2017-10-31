@@ -33,6 +33,26 @@ class RuntimeLocal extends AbstractService {
 
       this.shell.pushd(service.cwd);
 
+      // We run install/update dependencies.
+      // On 'update' op, when updateDependencies is not available we default to installDependencies
+      let deps = null;
+      if (op === 'install') {
+        deps = service['installDependencies'];
+      }
+      else if (op === 'update') {
+        deps = service['updateDependencies'];
+        if (_.isUndefined(deps)) {
+          deps = service['installDependencies'];
+        }
+      }
+
+      if (deps) {
+        console.log('Running deps install/update...'); //XXX
+        await this.runOperation(service, deps);
+      }
+
+      //END
+
       if (_.isUndefined(some)) {
         this.logger.log({
           level: 'warn',
@@ -41,19 +61,10 @@ class RuntimeLocal extends AbstractService {
         return;
       }
 
-      if (_.isFunction(some)) {
-        await some(this.createContext(service));
-      } else if (_.isString(some)) {
-        const {cmd, opts} = this.execOpts(service, some);
-        opts.silent = false;
-        this.shell.exec(cmd, opts);
-      } else {
-        console.log(`[${service.name}] No ${op} operation`); //XXX
-        //TODO if string execute as binary
-      }
+      await this.runOperation(service, some);
 
       //run migrations
-      if (op === 'update') {
+      if (op === 'install' || op === 'update') {
         await this.runMigrations(service);
       }
 
@@ -64,6 +75,22 @@ class RuntimeLocal extends AbstractService {
     }
 
     throw new Error(`Runtime local: Op "${op}" not implemented`);
+  }
+
+  async runOperation(service, some) {
+    if (_.isFunction(some)) {
+      await some(this.createContext(service));
+      return;
+    }
+
+    if (_.isString(some)) {
+      const {cmd, opts} = this.execOpts(service, some);
+      opts.silent = false;
+      this.shell.exec(cmd, opts);
+      return;
+    }
+
+    throw new Error('Can not run operation implemented as ' + typeof some);
   }
 
   async runMigrations(service) {
@@ -180,7 +207,7 @@ class RuntimeLocal extends AbstractService {
           const x = await pm2.describeAsync(service.name);
           service.status = undefined;
           if (!_.isEmpty(x)) {
-            service.status = x[0].pm2_env.status;
+            service.status = x[0].pm2_env.status === 'online' ? 'running' : 'stopped';
           }
 
           break;

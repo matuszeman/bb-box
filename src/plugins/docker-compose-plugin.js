@@ -29,10 +29,6 @@ class DockerComposePlugin extends AbstractService {
     const {service, op} = params;
 
     switch(op) {
-      case 'debug':
-        this.spawn('docker', ['run', '--rm', 'hello-world']);
-
-        break;
       case 'install':
       case 'update':
       case 'reset':
@@ -61,7 +57,9 @@ class DockerComposePlugin extends AbstractService {
         });
         break;
       case 'status':
-        const containers = await this.docker.listContainers();
+        const containers = await this.docker.listContainers({
+          all: 1
+        });
         const container = _.find(containers, (cnt) => {
           return cnt.Labels['com.docker.compose.service'] === service.dockerImageName;
         });

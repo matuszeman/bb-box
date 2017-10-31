@@ -95,7 +95,7 @@ class BbBox extends AbstractService {
     };
 
     let services = [];
-    if (params.services) {
+    if (!_.isEmpty(params.services)) {
       //run on selected dependencies
       const serviceNames = _.intersection(_.keys(service.services), params.services);
       services = serviceNames.map(name => {
@@ -124,7 +124,9 @@ class BbBox extends AbstractService {
       });
     }
 
-    this.outputInfo(service);
+    if (params.op === 'status') {
+      this.outputInfo(service);
+    }
   }
 
   async run(params) {
@@ -238,7 +240,6 @@ class BbBox extends AbstractService {
   }
 
   printServiceInfo(service) {
-    console.log(service); //XXX
     console.log(`[${service.name}@${service.runtime}]: ${service.status}`); //XXX
 
     if (!service.services) {
