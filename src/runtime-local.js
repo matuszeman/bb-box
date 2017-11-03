@@ -53,6 +53,11 @@ class RuntimeLocal extends AbstractService {
 
       //END
 
+      //run migrations
+      if (op === 'install' || op === 'update') {
+        await this.runMigrations(service);
+      }
+
       if (_.isUndefined(some)) {
         this.logger.log({
           level: 'warn',
@@ -62,11 +67,6 @@ class RuntimeLocal extends AbstractService {
       }
 
       await this.runOperation(service, some);
-
-      //run migrations
-      if (op === 'install' || op === 'update') {
-        await this.runMigrations(service);
-      }
 
       process.env = processEnv;
 
