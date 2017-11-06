@@ -58,6 +58,7 @@ class RuntimeLocal extends AbstractService {
         await this.runMigrations(service);
       }
 
+      //run the operation itself
       if (_.isUndefined(some)) {
         this.logger.log({
           level: 'warn',
@@ -102,15 +103,17 @@ class RuntimeLocal extends AbstractService {
 
     for (let migIndex in service.migrations) {
       migIndex = parseInt(migIndex);
+      const mig = service.migrations[migIndex];
+      const migName = `${migIndex} ${mig.description ? '- ' + mig.description : '(no description)'}`;
+
       if (migIndex <= lastMigrationIndex) {
-        console.log('Skipping migration ' + migIndex); //XXX
+        console.log(`Skipping migration ${migName}`);
         continue;
       }
 
-      const mig = service.migrations[migIndex];
       const ctx = this.createContext(service);
       try {
-        console.log('Running migration: ' + migIndex); //XXX
+        console.log(`Running migration: ${migName}`);
         await mig.up(ctx);
         service.state.lastMigration = migIndex
         console.log('... done'); //XXX
@@ -156,18 +159,21 @@ class RuntimeLocal extends AbstractService {
               force: true,
               env,
             });
+            if (_.isEmpty(ret)) {
+              throw new Error('Could not start PM2 process');
+            }
             this.logger.log({
               level: 'info',
               msg: `${service.name} PM2 process started`,
             });
           } else if (_.isObject(some)) {
-            _.defaults(some, {
+            const pm2Process = _.defaults({}, some, {
               name: service.name,
               cwd: service.cwd,
               env,
             });
 
-            some.force = true;
+            pm2Process.force = true;
 
             // try {
             //   await pm2.deleteAsync(service.name);
@@ -175,7 +181,7 @@ class RuntimeLocal extends AbstractService {
             //   //ignore delete errors
             // }
 
-            const ret = await pm2.startAsync(some);
+            const ret = await pm2.startAsync(pm2Process);
             if (_.isEmpty(ret)) {
               throw new Error('Could not start PM2 process');
             }

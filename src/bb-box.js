@@ -139,6 +139,7 @@ class BbBox extends AbstractService {
       skipDependencies: Joi.boolean().optional().default(false)
     });
 
+    //make sure we run a particular operation on a service once only
     if (ctx.ran[service.name + params.op]) {
       return;
     }
