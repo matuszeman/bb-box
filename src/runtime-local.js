@@ -219,18 +219,7 @@ class RuntimeLocal extends AbstractService {
           break;
       }
     } finally {
-      //causes problems - commented out for now
-      // bb-box/node_modules/pm2/lib/Client.js:370
-      // if (Client.client_sock.destroy)
-      //   ^
-      //
-      // TypeError: Cannot read property 'destroy' of undefined
-      // at Timeout._onTimeout (bb-box/node_modules/pm2/lib/Client.js:370:29)
-      // at ontimeout (timers.js:469:11)
-      // at tryOnTimeout (timers.js:304:5)
-      // at Timer.listOnTimeout (timers.js:264:5)
-
-      //this.pm2Disconnect();
+      this.pm2Disconnect();
     }
   }
 
