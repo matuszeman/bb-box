@@ -36,9 +36,24 @@ class BbBox extends AbstractService {
    *
    * @param plugin
    */
-  addPlugin(plugin) {
+  registerPlugin(plugin) {
     plugin.register(this);
     this.plugins.push(plugin);
+  }
+
+  async shutdown() {
+    console.log('BbBox: Shutting down...'); //XXX
+    for (const plugin of this.plugins) {
+      if (plugin['onUnregister']) {
+        await plugin.onUnregister();
+      }
+    }
+
+    for (const runtimeName in this.runtimes) {
+      if (this.runtimes[runtimeName]['onUnregister']) {
+        await this.runtimes[runtimeName].onUnregister();
+      }
+    }
   }
 
   /**

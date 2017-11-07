@@ -11,6 +11,10 @@ class RuntimeLocal extends AbstractService {
     this.pm2 = null;
   }
 
+  onUnregister() {
+    this.pm2Disconnect();
+  }
+
   async run(params) {
     this.params(params, {
       service: Joi.object(),
@@ -145,81 +149,77 @@ class RuntimeLocal extends AbstractService {
   async runPm2(service, op) {
     const pm2 = await this.pm2Connect();
 
-    try {
-      switch (op) {
-        case 'start':
-          const some = service[op];
-          const env = _.defaults({}, service.env);
+    switch (op) {
+      case 'start':
+        const some = service[op];
+        const env = _.defaults({}, service.env);
 
-          if (_.isString(some)) {
-            const ret = await pm2.startAsync({
-              name: service.name,
-              script: some,
-              cwd: service.cwd,
-              force: true,
-              env,
-            });
-            if (_.isEmpty(ret)) {
-              throw new Error('Could not start PM2 process');
-            }
-            this.logger.log({
-              level: 'info',
-              msg: `${service.name} PM2 process started`,
-            });
-          } else if (_.isObject(some)) {
-            const pm2Process = _.defaults({}, some, {
-              name: service.name,
-              cwd: service.cwd,
-              env,
-            });
-
-            pm2Process.force = true;
-
-            // try {
-            //   await pm2.deleteAsync(service.name);
-            // } catch(e) {
-            //   //ignore delete errors
-            // }
-
-            const ret = await pm2.startAsync(pm2Process);
-            if (_.isEmpty(ret)) {
-              throw new Error('Could not start PM2 process');
-            }
-            this.logger.log({
-              level: 'info',
-              msg: `${service.name} PM2 process started`,
-            });
-          } else {
-            this.logger.log({
-              level: 'info',
-              msg: `${service.name} No start op`,
-            });
+        if (_.isString(some)) {
+          const ret = await pm2.startAsync({
+            name: service.name,
+            script: some,
+            cwd: service.cwd,
+            force: true,
+            env,
+          });
+          if (_.isEmpty(ret)) {
+            throw new Error('Could not start PM2 process');
           }
-          break;
-        case 'stop':
-          try {
-            await pm2.stopAsync(service.name);
-          } catch (e) {
-            if (e.message !== 'process name not found') {
-              throw e;
-            }
-            this.logger.log({
-              level: 'warn',
-              msg: `${service.name} PM2 process does not exist`,
-            });
-          }
-          break;
-        case 'status':
-          const x = await pm2.describeAsync(service.name);
-          service.status = undefined;
-          if (!_.isEmpty(x)) {
-            service.status = x[0].pm2_env.status === 'online' ? 'running' : 'stopped';
-          }
+          this.logger.log({
+            level: 'info',
+            msg: `${service.name} PM2 process started`,
+          });
+        } else if (_.isObject(some)) {
+          const pm2Process = _.defaults({}, some, {
+            name: service.name,
+            cwd: service.cwd,
+            env,
+          });
 
-          break;
-      }
-    } finally {
-      this.pm2Disconnect();
+          pm2Process.force = true;
+
+          // try {
+          //   await pm2.deleteAsync(service.name);
+          // } catch(e) {
+          //   //ignore delete errors
+          // }
+
+          const ret = await pm2.startAsync(pm2Process);
+          if (_.isEmpty(ret)) {
+            throw new Error('Could not start PM2 process');
+          }
+          this.logger.log({
+            level: 'info',
+            msg: `${service.name} PM2 process started`,
+          });
+        } else {
+          this.logger.log({
+            level: 'info',
+            msg: `${service.name} No start op`,
+          });
+        }
+        break;
+      case 'stop':
+        try {
+          await pm2.stopAsync(service.name);
+        } catch (e) {
+          if (e.message !== 'process name not found') {
+            throw e;
+          }
+          this.logger.log({
+            level: 'warn',
+            msg: `${service.name} PM2 process does not exist`,
+          });
+        }
+        break;
+      case 'status':
+        const x = await pm2.describeAsync(service.name);
+        service.status = undefined;
+        if (!_.isEmpty(x)) {
+          service.status = x[0].pm2_env.status === 'online' ? 'running' : 'stopped';
+        }
+
+        break;
     }
   }
 
