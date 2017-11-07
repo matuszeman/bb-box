@@ -159,28 +159,10 @@ class BbBox extends AbstractService {
       return;
     }
 
-    if (!params.skipDependencies && !_.isEmpty(service.dependsOn)) {
-      for (const dep of service.dependsOn) {
-        const peerService = _.get(service, `parent.services.${dep}`);
-        if (!peerService) {
-          throw new Error(`Unknown peer service ${dep} of ${service.name}`);
-        }
-
-        await this.run({
-          service: peerService,
-          op: params.op,
-          ctx: ctx
-        });
-
-        //start peer services for install/update
-        if (params.op === 'install' || params.op === 'update') {
-          await this.run({
-            service: peerService,
-            op: 'start',
-            ctx: ctx
-          });
-        }
-      }
+    let runDependecies = true;
+    if (params.op !== 'stop') {
+      await this._runDependencies(ctx, service, params);
+      runDependecies = false;
     }
 
     ctx.ran[service.name + params.op] = true;
@@ -192,6 +174,11 @@ class BbBox extends AbstractService {
         level: 'info',
         msg: `${serviceName} Skipping ${params.op}`
       });
+
+      if (runDependecies) {
+        await this._runDependencies(ctx, service, params);
+      }
+
       return;
     }
 
@@ -217,6 +204,36 @@ class BbBox extends AbstractService {
       level: 'info',
       msg: `${serviceName} ... done`
     });
+
+    if (runDependecies) {
+      await this._runDependencies(ctx, service, params);
+    }
+  }
+
+  async _runDependencies(ctx, service, params) {
+    if (!params.skipDependencies && !_.isEmpty(service.dependsOn)) {
+      for (const dep of service.dependsOn) {
+        const peerService = _.get(service, `parent.services.${dep}`);
+        if (!peerService) {
+          throw new Error(`Unknown peer service ${dep} of ${service.name}`);
+        }
+
+        await this.run({
+          service: peerService,
+          op: params.op,
+          ctx: ctx
+        });
+
+        //start peer services for install/update
+        if (params.op === 'install' || params.op === 'update') {
+          await this.run({
+            service: peerService,
+            op: 'start',
+            ctx: ctx
+          });
+        }
+      }
+    }
   }
 
   async discover(cwd) {
