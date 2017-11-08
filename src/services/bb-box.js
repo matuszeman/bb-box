@@ -263,15 +263,33 @@ class BbBox extends AbstractService {
     let services = await this.discoverServices(cwd);
     ret.services = _.defaultsDeep({}, ret.services, services);
 
+    //normalize service properties and set the parent
     for (const name in ret.services) {
       const ser = ret.services[name];
 
-      if (_.isEmpty(ser.exposes)) {
+      let expose = ser.expose;
+
+      if (_.isInteger(ser.expose)) {
+        expose = [
+          {port: ser.expose, host: 'localhost'}
+        ];
+      } else if (_.isArray(expose)) {
+        expose = expose.map(exp => {
+          return {
+            host: _.get(exp, 'host', 'localhost'),
+            port: exp.port
+          }
+        });
+      } else if (_.isUndefined(expose)) {
         this.logger.log({
           level: 'warn',
           msg: `Service ${name} does not have any exposed ports`
         });
+      } else {
+        throw new Error('Unknown expose format: ' + expose);
       }
+
+      ser.expose = expose;
 
       ser.parent = ret;
       ser.env = _.defaults({}, ret.services[name].env, ret.globalEnv);
