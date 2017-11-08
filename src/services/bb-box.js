@@ -168,9 +168,9 @@ class BbBox extends AbstractService {
       service: params.service,
     });
 
-    const canRun = _.get(service, 'run.' + params.op);
+    const disableOp = _.get(service, 'disableOp.' + params.op, false);
     const serviceName = `[${service.name}@${service.runtime}]`;
-    if (!_.isUndefined(canRun) && !canRun) {
+    if (disableOp) {
       this.logger.log({
         level: 'info',
         msg: `${serviceName} Skipping ${params.op}`

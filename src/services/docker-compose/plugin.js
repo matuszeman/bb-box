@@ -30,12 +30,10 @@ class DockerComposePlugin extends AbstractService {
 
         const localService = !!service.build;
         if (!localService) {
-          def.run = {
-            install: false,
-            update: false,
-            reset: false,
-            start: true,
-            stop: true
+          def.disableOp = {
+            install: true,
+            update: true,
+            reset: true
           };
         }
 
