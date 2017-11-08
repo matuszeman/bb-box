@@ -263,9 +263,16 @@ class BbBox extends AbstractService {
     let services = await this.discoverServices(cwd);
     ret.services = _.defaultsDeep({}, ret.services, services);
 
-    //assign parent
     for (const name in ret.services) {
       const ser = ret.services[name];
+
+      if (_.isEmpty(ser.exposes)) {
+        this.logger.log({
+          level: 'warn',
+          msg: `Service ${name} does not have any exposed ports`
+        });
+      }
+
       ser.parent = ret;
       ser.env = _.defaults({}, ret.services[name].env, ret.globalEnv);
       ser.exec = _.defaults({}, ret.services[name].exec, _.get(ret, 'defaults.exec'));

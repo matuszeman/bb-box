@@ -28,6 +28,16 @@ class DockerComposePlugin extends AbstractService {
           dependsOn: service.depends_on
         }, _.isUndefined);
 
+        if (service.ports) {
+          def.exposes = service.ports.map(port => {
+            const ports = this.parsePorts(port);
+            return {
+              host: 'localhost',
+              port: ports.host
+            }
+          });
+        }
+
         const localService = !!service.build;
         if (!localService) {
           def.disableOps = {
@@ -47,6 +57,25 @@ class DockerComposePlugin extends AbstractService {
       }
       return {};
     }
+  }
+
+  parsePorts(port) {
+    const ports = port.split(':');
+    if (ports.length === 2) {
+      return {
+        host: ports[0],
+        container: ports[1]
+      };
+    }
+
+    if (ports.length === 1) {
+      return {
+        host: ports[0],
+        container: ports[0]
+      };
+    }
+
+    throw new Error('Unknown port format: ' + port);
   }
 }
 
