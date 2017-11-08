@@ -1,27 +1,35 @@
 #!/usr/bin/env node
 const _ = require('lodash');
-const BbBox = require('../src/bb-box');
-const DockerComposePlugin = require('../src/plugins/docker-compose-plugin');
-const GitPlugin = require('../src/plugins/git-plugin');
 
-function createBox(cmd) {
+const {dic} = require('./dic');
+
+async function createBox(cmd) {
   const logger = {
     log: (entry) => console.log(entry.msg)
   };
 
-  const box = new BbBox({
-    exec: cmd.exec
-  });
+  dic.instance('bbBoxOpts', {});
+
+  const box = dic.get('bbBox');
   box.setLogger(logger);
 
   //TODO
   try {
-    const plugin = new DockerComposePlugin();
+    const plugin = await dic.getAsync('dockerComposePlugin');
     plugin.setLogger(logger);
     box.registerPlugin(plugin);
     console.log('DockerComposePlugin: enabled'); //XXX
   } catch(e) {
-    console.warn('DockerComposePlugin: disabled - no docker-compose installed'); //XXX
+    console.warn('DockerComposePlugin: disabled - ' + e.message); //XXX
+  }
+
+  try {
+    const plugin = await dic.getAsync('reverseProxyPlugin');
+    plugin.setLogger(logger);
+    box.registerPlugin(plugin);
+    console.log('ReverseProxyPlugin: enabled'); //XXX
+  } catch(e) {
+    console.warn('ReverseProxyPlugin: disabled - ' + e.message); //XXX
   }
 
   // try {
@@ -48,7 +56,7 @@ async function runBoxOp(op, services, cmd) {
     params.skipDependencies = true;
   }
 
-  const box = createBox(cmd);
+  const box = await createBox(cmd);
 
   process.on('SIGINT', async function () {
     await box.shutdown();

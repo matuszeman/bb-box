@@ -1,17 +1,16 @@
 const {AbstractService, Joi} = require('@kapitchi/bb-service');
 const _ = require('lodash');
 const shell = require('shelljs');
-const Docker = require('dockerode');
 const { spawnSync } = require('child_process');
 
 class DockerComposeRuntime extends AbstractService {
-  constructor() {
+  constructor(docker) {
     super();
 
     //check if docker-compose is available on local system
     this.shell.exec('docker-compose --version', {silent: true});
 
-    this.docker = new Docker();
+    this.docker = docker;
   }
 
   async run(params) {

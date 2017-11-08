@@ -4,7 +4,6 @@ const fs = require('fs');
 const path = require('path');
 const {AbstractService, Joi} = require('@kapitchi/bb-service');
 const shell = require('shelljs');
-const RuntimeLocal = require('./runtime-local');
 
 const serviceSchema = Joi.object({
   name: Joi.string()
@@ -15,15 +14,14 @@ class BbBox extends AbstractService {
    *
    * @param bbBoxOpts
    */
-  constructor(bbBoxOpts) {
+  constructor(bbBoxOpts, runtimeLocal) {
     super(bbBoxOpts, {
       cwd: Joi.string().optional().default(process.cwd()),
-      exec: Joi.string().optional()
     });
 
     this.plugins = [];
     this.runtimes = {
-      local: new RuntimeLocal()
+      local: runtimeLocal
     };
   }
 
@@ -42,7 +40,6 @@ class BbBox extends AbstractService {
   }
 
   async shutdown() {
-    console.log('BbBox: Shutting down...'); //XXX
     for (const plugin of this.plugins) {
       if (plugin['onUnregister']) {
         await plugin.onUnregister();
@@ -167,6 +164,10 @@ class BbBox extends AbstractService {
 
     ctx.ran[service.name + params.op] = true;
 
+    await this.runPlugins(`run${_.upperFirst(params.op)}Before`, {
+      service: params.service,
+    });
+
     const canRun = _.get(service, 'run.' + params.op);
     const serviceName = `[${service.name}@${service.runtime}]`;
     if (!_.isUndefined(canRun) && !canRun) {
@@ -191,6 +192,10 @@ class BbBox extends AbstractService {
     await runtime.run({
       service,
       op: params.op
+    });
+
+    await this.runPlugins(`run${_.upperFirst(params.op)}After`, {
+      service: params.service,
     });
 
     if (service.runtime === 'local' && service.state) {
@@ -343,9 +348,10 @@ class BbBox extends AbstractService {
    * Must return something what can be deepMerged
    *
    * @param hook
+   * @param [params]
    * @returns {Promise.<void>}
    */
-  async runPlugins(hook) {
+  async runPlugins(hook, params) {
     const ret = {};
 
     for (const plugin of this.plugins) {
@@ -353,7 +359,7 @@ class BbBox extends AbstractService {
         continue;
       }
 
-      const x = await plugin[hook]();
+      const x = await plugin[hook](params);
       _.defaultsDeep(ret, x);
     }
 

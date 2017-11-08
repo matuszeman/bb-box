@@ -1,12 +1,11 @@
 const {AbstractService, Joi} = require('@kapitchi/bb-service');
-const DockerComposeRuntime = require('./docker-compose-runtime');
 const YAML = require('yamljs');
 const _ = require('lodash');
 
 class DockerComposePlugin extends AbstractService {
-  constructor() {
+  constructor(dockerComposeRuntime) {
     super();
-    this.runtime = new DockerComposeRuntime();
+    this.runtime = dockerComposeRuntime;
   }
 
   register(box) {
