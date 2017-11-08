@@ -156,6 +156,8 @@ class BbBox extends AbstractService {
       return;
     }
 
+    const serviceName = `[${service.name}@${service.runtime}]`;
+
     let runDependecies = true;
     if (params.op !== 'stop') {
       await this._runDependencies(ctx, service, params);
@@ -168,8 +170,13 @@ class BbBox extends AbstractService {
       service: params.service,
     });
 
-    const disableOp = _.get(service, 'disableOp.' + params.op, false);
-    const serviceName = `[${service.name}@${service.runtime}]`;
+    let disableOp = false;
+    if (_.isBoolean(service.disableOps)) {
+      disableOp = service.disableOps;
+    } else {
+      disableOp = _.get(service, `disableOps.${params.op}`, false);
+    }
+
     if (disableOp) {
       this.logger.log({
         level: 'info',
