@@ -253,7 +253,9 @@ class BbBox extends AbstractService {
       cwd = this.options.cwd;
     }
 
-    let ret = {};
+    let ret = {
+      name: 'ROOT'
+    };
 
     const filePath = cwd + '/bb-box.js';
     if (this.shell.test('-f', filePath)) {

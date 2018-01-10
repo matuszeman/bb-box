@@ -75,7 +75,7 @@ class DockerComposeRuntime extends AbstractService {
       shell: true
     }, opts));
     if (ret.status !== 0) {
-      console.log(ret); //XXX
+      console.error(ret); //XXX
       throw new Error('spawn error');
     }
   }
