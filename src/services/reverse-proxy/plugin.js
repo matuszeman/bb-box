@@ -49,6 +49,8 @@ class ReverseProxyPlugin extends AbstractService {
           port: expose.port
         }]
       });
+
+      //console.log(data); //XXX
     }
 
     const configFile = this.reverseProxyRenderer.render(data);
