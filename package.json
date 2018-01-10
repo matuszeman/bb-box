@@ -1,6 +1,6 @@
 {
   "name": "@kapitchi/bb-box",
-  "version": "0.12.1",
+  "version": "0.12.0",
   "description": "Development box",
   "main": "src/index.js",
   "bin": {
@@ -12,7 +12,7 @@
   "author": "Matus Zeman <matus.zeman@gmail.com>",
   "license": "MIT",
   "dependencies": {
-    "@kapitchi/bb-dic": "^1.5.0",
+    "@kapitchi/bb-dic": "^1.5.1",
     "@kapitchi/bb-service": "^1.4.0",
     "bluebird": "^3.5.0",
     "commander": "^2.11.0",

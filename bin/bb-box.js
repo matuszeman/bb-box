@@ -3,20 +3,34 @@ const _ = require('lodash');
 
 const {dic} = require('./dic');
 
-async function createBox(cmd) {
+function createLogger(serviceName) {
   const logger = {
-    log: (entry) => console.log(entry.msg)
+    log: (entry) => {
+      console.log('[' + serviceName + ']' + entry.msg);
+    }
+  };
+
+  return logger;
+}
+
+async function createBox(cmd) {
+
+
+  dic.factoryListener = function(ins, def) {
+    //console.log(def); //XXX
+    if (ins.setLogger) {
+      ins.setLogger(createLogger(def.name));
+    }
+    return ins;
   };
 
   dic.instance('bbBoxOpts', {});
 
   const box = dic.get('bbBox');
-  box.setLogger(logger);
 
   //TODO
   try {
     const plugin = await dic.getAsync('dockerComposePlugin');
-    plugin.setLogger(logger);
     box.registerPlugin(plugin);
     console.log('DockerComposePlugin: enabled'); //XXX
   } catch(e) {
@@ -25,7 +39,6 @@ async function createBox(cmd) {
 
   try {
     const plugin = await dic.getAsync('reverseProxyPlugin');
-    plugin.setLogger(logger);
     box.registerPlugin(plugin);
     console.log('ReverseProxyPlugin: enabled'); //XXX
   } catch(e) {

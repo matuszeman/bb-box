@@ -30,7 +30,7 @@ class DockerComposeRuntime extends AbstractService {
       case 'reset':
         this.logger.log({
           level: 'info',
-          msg: `DockerComposePlugin[${serviceName}]: START`
+          msg: `${serviceName}: RUNNING 'docker-compose run --rm ${serviceName} bb-box ${op}. The below runs on the container:`
         });
 
         this.spawn('docker-compose', ['run', '--rm', serviceName, 'bb-box', op], {
@@ -39,7 +39,7 @@ class DockerComposeRuntime extends AbstractService {
 
         this.logger.log({
           level: 'info',
-          msg: `DockerComposePlugin[${serviceName}]: END`
+          msg: `${serviceName}: END`
         });
         break;
       case 'start':
