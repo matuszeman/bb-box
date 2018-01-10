@@ -147,28 +147,40 @@ class RuntimeLocal extends AbstractService {
    * @returns {Promise.<void>}
    */
   async runPm2(service, op) {
-    const pm2 = await this.pm2Connect();
+    const pm2 = await this.pm2Connect(service);
 
     switch (op) {
       case 'start':
         const some = service[op];
         const env = _.defaults({}, service.env);
 
+        // file path to PM2 ecosystem file
         if (_.isString(some)) {
-          const ret = await pm2.startAsync({
-            name: service.name,
-            script: some,
-            cwd: service.cwd,
-            force: true,
-            env,
-          });
-          if (_.isEmpty(ret)) {
-            throw new Error('Could not start PM2 process');
+          this.shell.pushd(service.cwd);
+          try {
+            // const runSpec = {
+            //   name: service.name,
+            //   script: some,
+            //   cwd: service.cwd,
+            //   //interpreter: 'none',
+            //   //force: true,
+            //   env,
+            // };
+            const ret = await pm2.startAsync(some, {
+              env
+            });
+            if (_.isEmpty(ret)) {
+              throw new Error('Could not start PM2 process');
+            }
+            this.logger.log({
+              level: 'info',
+              msg: `${service.name} PM2 process started`,
+            });
+          } catch(e) {
+            console.log(e); //XXX
+            throw e;
           }
-          this.logger.log({
-            level: 'info',
-            msg: `${service.name} PM2 process started`,
-          });
+          this.shell.popd();
         } else if (_.isObject(some)) {
           const pm2Process = _.defaults({}, some, {
             name: service.name,
@@ -176,7 +188,7 @@ class RuntimeLocal extends AbstractService {
             env,
           });
 
-          pm2Process.force = true;
+          //pm2Process.force = true;
 
           // try {
           //   await pm2.deleteAsync(service.name);
@@ -184,14 +196,20 @@ class RuntimeLocal extends AbstractService {
           //   //ignore delete errors
           // }
 
-          const ret = await pm2.startAsync(pm2Process);
-          if (_.isEmpty(ret)) {
-            throw new Error('Could not start PM2 process');
+          try {
+            const ret = await pm2.startAsync(pm2Process);
+
+            if (_.isEmpty(ret)) {
+              throw new Error('Could not start PM2 process');
+            }
+            this.logger.log({
+              level: 'info',
+              msg: `${service.name} PM2 process started`,
+            });
+          } catch (e) {
+            console.log(e); //XXX
+            throw e;
           }
-          this.logger.log({
-            level: 'info',
-            msg: `${service.name} PM2 process started`,
-          });
         } else {
           this.logger.log({
             level: 'info',
@@ -257,13 +275,16 @@ class RuntimeLocal extends AbstractService {
     }
   }
 
-  async pm2Connect() {
-    if (this.pm2) {
-      return this.pm2;
+  async pm2Connect(service) {
+    if (!this.pm2) {
+      await pm2.connectAsync();
+      console.log('>>> PM2 connected'); //XXX
+      this.pm2 = pm2;
     }
-    await pm2.connectAsync();
-    console.log('>>> PM2 connected'); //XXX
-    return this.pm2 = pm2;
+
+    this.pm2.cwd = service.cwd;
+
+    return this.pm2;
   }
 
   pm2Disconnect() {
