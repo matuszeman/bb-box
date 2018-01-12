@@ -14,7 +14,6 @@ function createLogger(serviceName) {
 }
 
 async function createBox(program) {
-  console.log(dic); //XXX
   dic.factoryListener = function(ins, def) {
     //console.log(def); //XXX
     if (ins.setLogger) {

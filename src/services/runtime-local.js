@@ -83,6 +83,13 @@ class RuntimeLocal extends AbstractService {
   }
 
   async runOperation(service, some) {
+    if (_.isArray(some)) {
+      for (const one of some) {
+        await this.runOperation(service, one);
+      }
+      return;
+    }
+
     if (_.isFunction(some)) {
       await some(this.createContext(service));
       return;
@@ -95,6 +102,7 @@ class RuntimeLocal extends AbstractService {
       return;
     }
 
+    console.error(some); //XXX
     throw new Error('Can not run operation implemented as ' + typeof some);
   }
 

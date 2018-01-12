@@ -7,7 +7,6 @@ var _asyncToGenerator3 = _interopRequireDefault(_asyncToGenerator2);
 
 let createBox = (() => {
   var _ref = (0, _asyncToGenerator3.default)(function* (program) {
-    console.log(dic); //XXX
     dic.factoryListener = function (ins, def) {
       //console.log(def); //XXX
       if (ins.setLogger) {

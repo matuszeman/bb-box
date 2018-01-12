@@ -97,6 +97,13 @@ class RuntimeLocal extends AbstractService {
     var _this2 = this;
 
     return (0, _asyncToGenerator3.default)(function* () {
+      if (_.isArray(some)) {
+        for (const one of some) {
+          yield _this2.runOperation(service, one);
+        }
+        return;
+      }
+
       if (_.isFunction(some)) {
         yield some(_this2.createContext(service));
         return;
