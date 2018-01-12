@@ -6,16 +6,15 @@ const {dic} = require('./dic');
 function createLogger(serviceName) {
   const logger = {
     log: (entry) => {
-      console.log('[' + serviceName + ']' + entry.msg);
+      console.log('[' + serviceName + '] ' + entry.msg);
     }
   };
 
   return logger;
 }
 
-async function createBox(cmd) {
-
-
+async function createBox(program) {
+  console.log(dic); //XXX
   dic.factoryListener = function(ins, def) {
     //console.log(def); //XXX
     if (ins.setLogger) {
@@ -32,6 +31,7 @@ async function createBox(cmd) {
   try {
     const plugin = await dic.getAsync('dockerComposePlugin');
     box.registerPlugin(plugin);
+    plugin.onCli(program);
     console.log('DockerComposePlugin: enabled'); //XXX
   } catch(e) {
     console.warn('DockerComposePlugin: disabled - ' + e.message); //XXX
@@ -40,6 +40,7 @@ async function createBox(cmd) {
   try {
     const plugin = await dic.getAsync('reverseProxyPlugin');
     box.registerPlugin(plugin);
+    plugin.onCli(program);
     console.log('ReverseProxyPlugin: enabled'); //XXX
   } catch(e) {
     console.warn('ReverseProxyPlugin: disabled - ' + e.message); //XXX
@@ -55,12 +56,12 @@ async function createBox(cmd) {
   return box;
 }
 
-function createCommand(cmd) {
+function createCommand(program, cmd) {
   return program.command(cmd)
     .option('--skip-dependencies', 'Skip the operation on the service dependencies')
 }
 
-async function runBoxOp(op, services, cmd) {
+async function runBoxOp(box, op, services, cmd) {
   const params = {
     services,
   };
@@ -68,8 +69,6 @@ async function runBoxOp(op, services, cmd) {
   if (cmd.skipDependencies) {
     params.skipDependencies = true;
   }
-
-  const box = await createBox(cmd);
 
   process.on('SIGINT', async function () {
     await box.shutdown();
@@ -80,36 +79,45 @@ async function runBoxOp(op, services, cmd) {
     throw new Error(`No ${op} implemented on BbBox`);
   }
 
-  await box[op](params);
+  try {
+    await box[op](params);
+  } catch(e) {
+    console.error(e); //XXX
+  }
 
   await box.shutdown();
 }
 
-const program = require('commander');
-program
-  .version(require('../package.json').version);
+(async () => {
+  const program = require('commander');
 
-createCommand('install [services...]')
-  .action(_.partial(runBoxOp, 'install'));
+  const box = await createBox(program);
 
-createCommand('update [services...]')
-  .action(_.partial(runBoxOp, 'update'));
+  program
+    .version(require('../../package.json').version);
 
-createCommand('start [services...]')
-  .action(_.partial(runBoxOp, 'start'));
+  createCommand(program, 'install [services...]')
+    .action(_.partial(runBoxOp, box, 'install'));
 
-createCommand('stop [services...]')
-  .action(_.partial(runBoxOp, 'stop'));
+  createCommand(program, 'update [services...]')
+    .action(_.partial(runBoxOp, box, 'update'));
 
-createCommand('reset [services...]')
-  .action(_.partial(runBoxOp, 'reset'));
+  createCommand(program, 'start [services...]')
+    .action(_.partial(runBoxOp, box, 'start'));
 
-createCommand('status [services...]')
-  .action(_.partial(runBoxOp, 'status'));
+  createCommand(program, 'stop [services...]')
+    .action(_.partial(runBoxOp, box, 'stop'));
 
-program.command('help')
-  .action(function() {
-    program.help();
-  });
+  createCommand(program, 'reset [services...]')
+    .action(_.partial(runBoxOp, box, 'reset'));
 
-program.parse(process.argv);
+  createCommand(program, 'status [services...]')
+    .action(_.partial(runBoxOp, box, 'status'));
+
+  program.command('help')
+    .action(function() {
+      program.help();
+    });
+
+  program.parse(process.argv);
+})();

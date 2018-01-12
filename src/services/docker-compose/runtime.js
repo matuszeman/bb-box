@@ -33,7 +33,7 @@ class DockerComposeRuntime extends AbstractService {
           msg: `${serviceName}: RUNNING 'docker-compose run --rm ${serviceName} bb-box ${op}. The below runs on the container:`
         });
 
-        this.spawn('docker-compose', ['run', '--rm', serviceName, 'bb-box', op], {
+        this.spawn('docker-compose', ['run', `--user ${this.getUserGroup()}`, '--rm', serviceName, 'bb-box', op], {
           env: service.env
         });
 
@@ -69,9 +69,15 @@ class DockerComposeRuntime extends AbstractService {
     }
   }
 
+  getUserGroup() {
+    return `${process.getuid()}:${process.getgid()}`;
+  }
+
   spawn(cmd, args, opts) {
     //merge current process env with spawn cmd
-    const env = _.defaults({}, opts.env, process.env);
+    const env = _.defaults({
+      BOX_USER: this.getUserGroup()
+    }, opts.env, process.env);
     const ret = spawnSync(cmd, args, _.defaults({
       env,
       stdio: 'inherit',

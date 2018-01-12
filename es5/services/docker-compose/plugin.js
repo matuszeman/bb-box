@@ -1,4 +1,6 @@
-const {AbstractService, Joi} = require('@kapitchi/bb-service');
+'use strict';
+
+const { AbstractService, Joi } = require('@kapitchi/bb-service');
 const YAML = require('yamljs');
 const _ = require('lodash');
 
@@ -12,8 +14,7 @@ class DockerComposePlugin extends AbstractService {
     box.runtimes['docker-compose'] = this.runtime;
   }
 
-  onCli(program) {
-  }
+  onCli(program) {}
 
   discoverServices() {
     try {
@@ -37,7 +38,7 @@ class DockerComposePlugin extends AbstractService {
             return {
               host: 'localhost',
               port: ports.host
-            }
+            };
           });
         }
 
@@ -54,7 +55,7 @@ class DockerComposePlugin extends AbstractService {
       }
 
       return ret;
-    } catch(e) {
+    } catch (e) {
       if (e.code !== 'ENOENT') {
         throw e;
       }
@@ -83,3 +84,4 @@ class DockerComposePlugin extends AbstractService {
 }
 
 module.exports = DockerComposePlugin;
+//# sourceMappingURL=plugin.js.map

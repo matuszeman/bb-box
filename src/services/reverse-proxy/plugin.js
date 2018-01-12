@@ -2,24 +2,29 @@ const {AbstractService, Joi} = require('@kapitchi/bb-service');
 const _ = require('lodash');
 
 class ReverseProxyPlugin extends AbstractService {
-  constructor(reverseProxyRenderer) {
+  constructor(reverseProxyRenderer, docker) {
     super();
     this.reverseProxyRenderer = reverseProxyRenderer;
+    this.docker = docker;
+    //docker run -p 8080:8080 -p 80:80 --network=host -v $PWD/traefik/traefik.toml:/etc/traefik/traefik.toml -v $PWD/traefik/rules:/rules traefik
   }
 
   register(box) {
-
   }
 
-  async runInstallAfter({service}) {
+  onCli(program) {
+  }
+
+  async onInstallAfter({service}) {
     await this.createConfigOnEnabled(service);
   }
 
-  async runUpdateAfter({service}) {
+  async onUpdateAfter({service}) {
     await this.createConfigOnEnabled(service);
   }
 
   async createConfigOnEnabled(service) {
+    console.log(service); //XXX
     if (!service.reverseProxy) {
       return;
     }

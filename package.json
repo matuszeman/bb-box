@@ -2,18 +2,21 @@
   "name": "@kapitchi/bb-box",
   "version": "0.12.3",
   "description": "Development box",
-  "main": "src/index.js",
+  "main": "es5/src/index.js",
   "bin": {
-    "bb-box": "./bin/bb-box.js"
+    "bb-box": "./es5/bin/bb-box.js"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "es5": "babel src -d es5 --ignore '**/*.spec.js' --source-maps",
+    "build": "npm run es5"
   },
   "author": "Matus Zeman <matus.zeman@gmail.com>",
   "license": "MIT",
   "dependencies": {
-    "@kapitchi/bb-dic": "^1.5.1",
+    "@kapitchi/bb-dic": "^1.5.2",
     "@kapitchi/bb-service": "^1.4.0",
+    "babel-runtime": "^6.26.0",
     "bluebird": "^3.5.0",
     "commander": "^2.11.0",
     "dockerode": "^2.5.1",
@@ -26,8 +29,7 @@
     "yamljs": "^0.3.0"
   },
   "files": [
-    "bin",
-    "src"
+    "es5"
   ],
   "bugs": {
     "url": "https://github.com/matuszeman/bb-box/issues"
@@ -35,5 +37,10 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/matuszeman/bb-box"
+  },
+  "devDependencies": {
+    "babel-cli": "^6.26.0",
+    "babel-plugin-transform-runtime": "^6.23.0",
+    "babel-preset-env": "^1.6.1"
   }
 }

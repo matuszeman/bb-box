@@ -166,7 +166,7 @@ class BbBox extends AbstractService {
 
     ctx.ran[service.name + params.op] = true;
 
-    await this.runPlugins(`run${_.upperFirst(params.op)}Before`, {
+    await this.runPlugins(`on${_.upperFirst(params.op)}Before`, {
       service: params.service,
     });
 
@@ -201,7 +201,7 @@ class BbBox extends AbstractService {
       op: params.op
     });
 
-    await this.runPlugins(`run${_.upperFirst(params.op)}After`, {
+    await this.runPlugins(`on${_.upperFirst(params.op)}After`, {
       service: params.service,
     });
 
@@ -304,6 +304,14 @@ class BbBox extends AbstractService {
     return ret;
   }
 
+  async findService(serviceName) {
+    const service = await this.discover();
+    if (!service.services || !service.services[serviceName]) {
+      return null;
+    }
+    return service.services[serviceName];
+  }
+
   outputInfo(service) {
     console.log('=============='); //XXX
     console.log('Service status'); //XXX
@@ -366,8 +374,15 @@ class BbBox extends AbstractService {
 
     const services = {};
     for (const p of paths) {
-      const file = this.loadServiceFile(p);
-      services[file.name] = file;
+      try {
+        const file = this.loadServiceFile(p);
+        services[file.name] = file;
+      } catch (e) {
+        this.logger.log({
+          level: 'error',
+          msg: `Service file error. Service disabled. ${p}: ${e}`
+        });
+      }
     }
 
     const pluginServices = await this.runPlugins('discoverServices');
