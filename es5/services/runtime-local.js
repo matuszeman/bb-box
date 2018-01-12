@@ -116,6 +116,7 @@ class RuntimeLocal extends AbstractService {
         return;
       }
 
+      console.error(some); //XXX
       throw new Error('Can not run operation implemented as ' + typeof some);
     })();
   }
