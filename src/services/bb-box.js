@@ -262,6 +262,10 @@ class BbBox extends AbstractService {
       ret = this.loadServiceFile(filePath);
     }
 
+    _.defaults(ret, {
+      runtime: 'local'
+    });
+
     let services = await this.discoverServices(cwd);
     ret.services = _.defaultsDeep({}, ret.services, services);
 

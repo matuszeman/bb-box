@@ -24,7 +24,6 @@ class ReverseProxyPlugin extends AbstractService {
   }
 
   async createConfigOnEnabled(service) {
-    console.log(service); //XXX
     if (!service.reverseProxy) {
       return;
     }

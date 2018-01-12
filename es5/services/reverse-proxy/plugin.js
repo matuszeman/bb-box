@@ -41,7 +41,6 @@ class ReverseProxyPlugin extends AbstractService {
     var _this3 = this;
 
     return (0, _asyncToGenerator3.default)(function* () {
-      console.log(service); //XXX
       if (!service.reverseProxy) {
         return;
       }
