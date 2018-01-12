@@ -1,6 +1,6 @@
 {
   "name": "@kapitchi/bb-box",
-  "version": "0.12.3",
+  "version": "0.12.4",
   "description": "Development box",
   "main": "es5/src/index.js",
   "bin": {
