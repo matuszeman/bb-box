@@ -28,12 +28,27 @@ class DockerComposeRuntime extends AbstractService {
       case 'install':
       case 'update':
       case 'reset':
+        let cmd = 'run';
+        if (await this.getStatus(serviceName) === 'running') {
+          cmd = 'exec';
+        }
+
+        const args = [`--user ${this.getUserGroup()}`];
+
+        if (cmd === 'run') {
+          args.push('--rm');
+          //TODO escape val?
+          _.each(service.env, (val, key) => {
+            args.push(`-e ${key}=${val}`);
+          });
+        }
+
         this.logger.log({
           level: 'info',
-          msg: `${serviceName}: RUNNING 'docker-compose run --rm ${serviceName} bb-box ${op}. The below runs on the container:`
+          msg: `${serviceName}: RUNNING 'docker-compose ${cmd} <args> ${serviceName} bb-box ${op}. The below runs on the container:`
         });
 
-        this.spawn('docker-compose', ['run', `--user ${this.getUserGroup()}`, '--rm', serviceName, 'bb-box', op], {
+        this.spawn('docker-compose', [cmd, ...args, serviceName, 'bb-box', op], {
           env: service.env
         });
 
@@ -53,20 +68,24 @@ class DockerComposeRuntime extends AbstractService {
         });
         break;
       case 'status':
-        const containers = await this.docker.listContainers({
-          all: 1
-        });
-        const container = _.find(containers, (cnt) => {
-          return cnt.Labels['com.docker.compose.service'] === serviceName;
-        });
-        service.status = undefined;
-        if (container) {
-          service.status = container.State;
-        }
+        service.status = await this.getStatus(serviceName);
         break;
       default:
         throw new Error('DockerComposePlugin: Not supported operation ' + op);
     }
+  }
+
+  async getStatus(serviceName) {
+    const containers = await this.docker.listContainers({
+      all: 1
+    });
+    const container = _.find(containers, (cnt) => {
+      return cnt.Labels['com.docker.compose.service'] === serviceName;
+    });
+    if (container) {
+      return container.State;
+    }
+    return undefined;
   }
 
   getUserGroup() {

@@ -446,10 +446,7 @@ class BbBox extends AbstractService {
           const file = _this13.loadServiceFile(p);
           services[file.name] = file;
         } catch (e) {
-          _this13.logger.log({
-            level: 'error',
-            msg: `Service file error. Service disabled. ${p}: ${e}`
-          });
+          throw new Error(`Service file error. Service disabled. ${p}: ${e}\n${e.stack}`);
         }
       }
 

@@ -39,12 +39,27 @@ class DockerComposeRuntime extends AbstractService {
         case 'install':
         case 'update':
         case 'reset':
+          let cmd = 'run';
+          if ((yield _this.getStatus(serviceName)) === 'running') {
+            cmd = 'exec';
+          }
+
+          const args = [`--user ${_this.getUserGroup()}`];
+
+          if (cmd === 'run') {
+            args.push('--rm');
+            //TODO escape val?
+            _.each(service.env, function (val, key) {
+              args.push(`-e ${key}=${val}`);
+            });
+          }
+
           _this.logger.log({
             level: 'info',
-            msg: `${serviceName}: RUNNING 'docker-compose run --rm ${serviceName} bb-box ${op}. The below runs on the container:`
+            msg: `${serviceName}: RUNNING 'docker-compose ${cmd} <args> ${serviceName} bb-box ${op}. The below runs on the container:`
           });
 
-          _this.spawn('docker-compose', ['run', `--user ${_this.getUserGroup()}`, '--rm', serviceName, 'bb-box', op], {
+          _this.spawn('docker-compose', [cmd, ...args, serviceName, 'bb-box', op], {
             env: service.env
           });
 
@@ -64,20 +79,28 @@ class DockerComposeRuntime extends AbstractService {
           });
           break;
         case 'status':
-          const containers = yield _this.docker.listContainers({
-            all: 1
-          });
-          const container = _.find(containers, function (cnt) {
-            return cnt.Labels['com.docker.compose.service'] === serviceName;
-          });
-          service.status = undefined;
-          if (container) {
-            service.status = container.State;
-          }
+          service.status = yield _this.getStatus(serviceName);
           break;
         default:
           throw new Error('DockerComposePlugin: Not supported operation ' + op);
       }
+    })();
+  }
+
+  getStatus(serviceName) {
+    var _this2 = this;
+
+    return (0, _asyncToGenerator3.default)(function* () {
+      const containers = yield _this2.docker.listContainers({
+        all: 1
+      });
+      const container = _.find(containers, function (cnt) {
+        return cnt.Labels['com.docker.compose.service'] === serviceName;
+      });
+      if (container) {
+        return container.State;
+      }
+      return undefined;
     })();
   }
 

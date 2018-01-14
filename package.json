@@ -4,7 +4,7 @@
   "description": "Development box",
   "main": "es5/src/index.js",
   "bin": {
-    "bb-box": "./es5/bin/bb-box.js"
+    "bbox": "./es5/bin/bb-box.js"
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
@@ -24,7 +24,7 @@
     "inquirer": "^3.3.0",
     "joi": "^11.0.2",
     "lodash": "^4.17.4",
-    "pm2": "^2.7.2",
+    "pm2": "^2.7",
     "shelljs": "^0.7.8",
     "yamljs": "^0.3.0"
   },
