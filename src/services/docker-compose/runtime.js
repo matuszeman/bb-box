@@ -33,7 +33,12 @@ class DockerComposeRuntime extends AbstractService {
           cmd = 'exec';
         }
 
-        const args = [`--user ${this.getUserGroup()}`];
+        const args = [];
+
+        const userGroup = this.getUserGroup();
+        if (userGroup) {
+          args.push(`--user ${userGroup}`);
+        }
 
         if (cmd === 'run') {
           args.push('--rm');
@@ -88,8 +93,18 @@ class DockerComposeRuntime extends AbstractService {
     return undefined;
   }
 
+  /**
+   * Get "user:group" of current process
+   *
+   * Window: process.getgid() and process.getuid() are not defined so this returns null
+   *
+   * @returns {null|string}
+   */
   getUserGroup() {
-    return `${process.getuid()}:${process.getgid()}`;
+    if (process.getgid && process.getuid) {
+      return `${process.getuid()}:${process.getgid()}`;
+    }
+    return undefined;
   }
 
   spawn(cmd, args, opts) {
