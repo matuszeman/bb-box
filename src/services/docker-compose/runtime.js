@@ -110,15 +110,15 @@ class DockerComposeRuntime extends AbstractService {
 
   spawn(cmd, args, opts) {
     //merge current process env with spawn cmd
-    const env = _.defaults({
-      BOX_USER: this.getUserGroup()
-    }, opts.env, process.env);
-    const ret = spawnSync(cmd, args, _.defaults({
+    const env = _.defaults({}, opts.env, process.env);
+    const userGroup = this.getUserGroup();
+    if (userGroup) {
+        env.BOX_USER = userGroup;
+    }
+    const ret = spawnSync(cmd, args, {
       env,
-      stdio: 'inherit',
-      shell: true,
-      windowsHide: true //hide terminal window on Windows
-    }, opts));
+      stdio: 'inherit'
+    });
     if (ret.status !== 0) {
       console.error(ret); //XXX
       throw new Error('spawn error');
