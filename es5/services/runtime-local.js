@@ -296,6 +296,7 @@ class RuntimeLocal extends AbstractService {
     const opts = _.defaults({}, _.omit(service.exec, 'template'), {
       //async: true //TODO
       silent: false,
+      windowsHide: true, //do not open terminal window on Windows
       env
     });
 

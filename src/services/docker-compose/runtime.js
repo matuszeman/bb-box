@@ -8,7 +8,7 @@ class DockerComposeRuntime extends AbstractService {
     super();
 
     //check if docker-compose is available on local system
-    this.shell.exec('docker-compose --version', {silent: true});
+    this.shell.exec('docker-compose --version', {silent: true, windowsHide: true});
 
     this.docker = docker;
   }
@@ -36,6 +36,7 @@ class DockerComposeRuntime extends AbstractService {
         const args = [];
 
         const userGroup = this.getUserGroup();
+        console.log(userGroup);
         if (userGroup) {
           args.push(`--user ${userGroup}`);
         }
@@ -50,10 +51,10 @@ class DockerComposeRuntime extends AbstractService {
 
         this.logger.log({
           level: 'info',
-          msg: `${serviceName}: RUNNING 'docker-compose ${cmd} <args> ${serviceName} bb-box ${op}. The below runs on the container:`
+          msg: `${serviceName}: RUNNING 'docker-compose ${cmd} <args> ${serviceName} bbox ${op}. The below runs on the container:`
         });
 
-        this.spawn('docker-compose', [cmd, ...args, serviceName, 'bb-box', op], {
+        this.spawn('docker-compose', [cmd, ...args, serviceName, 'bbox', op], {
           env: service.env
         });
 
@@ -115,7 +116,8 @@ class DockerComposeRuntime extends AbstractService {
     const ret = spawnSync(cmd, args, _.defaults({
       env,
       stdio: 'inherit',
-      shell: true
+      shell: true,
+      windowsHide: true //hide terminal window on Windows
     }, opts));
     if (ret.status !== 0) {
       console.error(ret); //XXX

@@ -3,9 +3,10 @@ const YAML = require('yamljs');
 const _ = require('lodash');
 
 class DockerComposePlugin extends AbstractService {
-  constructor(dockerComposeRuntime) {
+  constructor(dockerComposeRuntime, dockerDiscovery) {
     super();
     this.runtime = dockerComposeRuntime;
+    this.dockerDiscovery = dockerDiscovery;
   }
 
   register(box) {
@@ -17,6 +18,8 @@ class DockerComposePlugin extends AbstractService {
 
   discoverServices() {
     try {
+      const host = this.dockerDiscovery.getHost();
+        
       const compose = YAML.load('docker-compose.yml');
       const ret = {};
       for (const serviceName in compose.services) {
@@ -35,7 +38,7 @@ class DockerComposePlugin extends AbstractService {
           def.expose = service.ports.map(port => {
             const ports = this.parsePorts(port);
             return {
-              host: 'localhost',
+              host: host.ip,
               port: ports.host
             }
           });
