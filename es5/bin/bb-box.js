@@ -38,6 +38,15 @@ let createBox = (() => {
       console.warn('ReverseProxyPlugin: disabled - ' + e.message); //XXX
     }
 
+    try {
+      const plugin = yield dic.getAsync('hostsPlugin');
+      box.registerPlugin(plugin);
+      plugin.onCli(program);
+      console.log('HostsPlugin: enabled'); //XXX
+    } catch (e) {
+      console.warn('HostsPlugin: disabled - ' + e.message); //XXX
+    }
+
     // try {
     //   box.registerPlugin(new GitPlugin());
     //   console.log('GitPlugin: enabled'); //XXX

@@ -134,7 +134,6 @@ class DockerComposeRuntime extends AbstractService {
     const ret = spawnSync(cmd, args, {
       env,
       stdio: 'inherit'
-      //shell: true
     });
     if (ret.status !== 0) {
       console.error(ret); //XXX

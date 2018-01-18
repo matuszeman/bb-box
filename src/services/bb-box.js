@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const {AbstractService, Joi} = require('@kapitchi/bb-service');
 const shell = require('shelljs');
+const iplib = require('ip');
 
 const serviceSchema = Joi.object({
   name: Joi.string()
@@ -268,7 +269,9 @@ class BbBox extends AbstractService {
 
     let services = await this.discoverServices(cwd);
     ret.services = _.defaultsDeep({}, ret.services, services);
-
+      
+    const hostIp = iplib.address();
+    
     //normalize service properties and set the parent
     for (const name in ret.services) {
       const ser = ret.services[name];
@@ -277,12 +280,12 @@ class BbBox extends AbstractService {
 
       if (_.isInteger(ser.expose)) {
         expose = [
-          {port: ser.expose, host: 'localhost'}
+          {port: ser.expose, ip: hostIp}
         ];
       } else if (_.isArray(expose)) {
         expose = expose.map(exp => {
           return {
-            host: _.get(exp, 'host', 'localhost'),
+            ip: _.get(exp, 'ip', hostIp),
             port: exp.port
           }
         });

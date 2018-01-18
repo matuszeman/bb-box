@@ -39,7 +39,7 @@ class DockerComposePlugin extends AbstractService {
           def.expose = service.ports.map(port => {
             const ports = this.parsePorts(port);
             return {
-              host: host.ip,
+              ip: host.ip,
               port: ports.host
             };
           });
