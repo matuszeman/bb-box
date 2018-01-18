@@ -4,7 +4,8 @@
   "description": "Development box",
   "main": "es5/src/index.js",
   "bin": {
-    "bbox": "./es5/bin/bb-box.js"
+    "bbox": "./src/bin/bb-box.js",
+    "bbox-es5": "./es5/bin/bb-box.js"
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",

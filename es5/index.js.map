@@ -1,1 +1,1 @@
-{"version":3,"sources":["../src/index.js"],"names":["module","exports","BbBox","require"],"mappings":";;AAAAA,OAAOC,OAAP,GAAiB;AACfC,SAAOC,QAAQ,UAAR;AADQ,CAAjB","file":"index.js","sourcesContent":["module.exports = {\r\n  BbBox: require('./bb-box')\r\n};"]}
+{"version":3,"sources":["../src/index.js"],"names":["module","exports","BbBox","require"],"mappings":";;AAAAA,OAAOC,OAAP,GAAiB;AACfC,SAAOC,QAAQ,UAAR;AADQ,CAAjB","file":"index.js","sourcesContent":["module.exports = {\n  BbBox: require('./bb-box')\n};"]}
