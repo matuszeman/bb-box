@@ -50,9 +50,7 @@ class DockerComposeRuntime extends AbstractService {
           cmd = 'exec';
         }
 
-        const args = [
-          '--no-deps'
-        ];
+        const args = [];
         const userGroup = this.getUserGroup();
         if (userGroup) {
           args.push(`--user "${userGroup}"`);
