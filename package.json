@@ -31,7 +31,9 @@
     "yamljs": "^0.3.0"
   },
   "files": [
-    "es5"
+    "es5",
+    "src",
+    "bin"
   ],
   "bugs": {
     "url": "https://github.com/matuszeman/bb-box/issues"
