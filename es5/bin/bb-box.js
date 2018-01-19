@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 'use strict';
 
 var _asyncToGenerator2 = require('babel-runtime/helpers/asyncToGenerator');

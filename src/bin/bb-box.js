@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 const _ = require('lodash');
 
 const {dic} = require('./dic');

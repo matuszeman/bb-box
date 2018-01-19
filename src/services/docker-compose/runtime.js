@@ -30,16 +30,16 @@ class DockerComposeRuntime extends AbstractService {
     const serviceName = service.dockerCompose.service;
 
     const fileArgs = [
-      //'-f docker-compose.yml'
+      '-f docker-compose.yml'
     ];
-    // const platformFile = `docker-compose.${os.platform()}.yml`;
-    // if (this.shell.test('-f', platformFile)) {
-    //   this.logger.log({
-    //     level: 'info',
-    //     msg: `Using platform file: ${platformFile}`
-    //   });
-    //   fileArgs.push(`-f ${platformFile}`);
-    // }
+    const platformFile = `docker-compose.${os.platform()}.yml`;
+    if (this.shell.test('-f', platformFile)) {
+      this.logger.log({
+        level: 'info',
+        msg: `Using platform file: ${platformFile}`
+      });
+      fileArgs.push(`-f ${platformFile}`);
+    }
 
     switch(op) {
       case 'install':
@@ -134,6 +134,7 @@ class DockerComposeRuntime extends AbstractService {
     });
     const ret = spawnSync(cmd, args, {
       env,
+      shell: true, //throws error without this
       stdio: 'inherit'
     });
     if (ret.status !== 0) {
