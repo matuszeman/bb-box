@@ -109,6 +109,9 @@ class BbBox extends AbstractService {
 
     let services = [];
     if (!_.isEmpty(params.services)) {
+      //parent service
+      services.push(service);
+
       //run on selected dependencies
       const serviceNames = _.intersection(_.keys(service.services), params.services);
       services = serviceNames.map(name => {
@@ -116,16 +119,17 @@ class BbBox extends AbstractService {
       });
     }
     else {
+      //parent service
+      services.push(service);
+
       //run for current/parent service
       if (!params.skipDependencies) {
         const serviceNames = _.keys(service.services);
         //run on dependencies first
-        services = serviceNames.map(name => {
+        services.push(...serviceNames.map(name => {
           return service.services[name];
-        });
+        }));
       }
-      //then parent service
-      services.push(service);
     }
 
     for (const ser of services) {
@@ -159,6 +163,11 @@ class BbBox extends AbstractService {
 
     const serviceName = `[${service.name}@${service.runtime}]`;
 
+    await this.runPlugins(`on${_.upperFirst(params.op)}Before`, {
+      service: params.service,
+      ctx,
+    });
+
     let runDependecies = true;
     if (params.op !== 'stop') {
       await this._runDependencies(ctx, service, params);
@@ -166,10 +175,6 @@ class BbBox extends AbstractService {
     }
 
     ctx.ran[service.name + params.op] = true;
-
-    await this.runPlugins(`on${_.upperFirst(params.op)}Before`, {
-      service: params.service,
-    });
 
     let disableOp = false;
     if (_.isBoolean(service.disableOps)) {
@@ -199,11 +204,13 @@ class BbBox extends AbstractService {
     const runtime = await this.getRuntime(service);
     await runtime.run({
       service,
-      op: params.op
+      op: params.op,
+      ctx
     });
 
     await this.runPlugins(`on${_.upperFirst(params.op)}After`, {
       service: params.service,
+      ctx
     });
 
     if (service.runtime === 'local' && service.state) {
@@ -317,6 +324,14 @@ class BbBox extends AbstractService {
       return null;
     }
     return service.services[serviceName];
+  }
+
+  getParent(service) {
+    while (service.parent) {
+      service = service.parent;
+    }
+
+    return service;
   }
 
   outputInfo(service) {

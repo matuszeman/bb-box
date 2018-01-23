@@ -18,7 +18,8 @@ class RuntimeLocal extends AbstractService {
   async run(params) {
     this.params(params, {
       service: Joi.object(),
-      op: Joi.string()
+      op: Joi.string(),
+      ctx: Joi.object()
     });
 
     //need references not clones so we don't do `params = this.params()`

@@ -53,6 +53,15 @@ async function createBox(program) {
     console.warn('HostsPlugin: disabled - ' + e.message); //XXX
   }
 
+  try {
+    const plugin = await dic.getAsync('sshPlugin');
+    box.registerPlugin(plugin);
+    plugin.onCli(program);
+    console.log('SshPlugin: enabled'); //XXX
+  } catch(e) {
+    console.warn('SshPlugin: disabled - ' + e.message); //XXX
+  }
+
   // try {
   //   box.registerPlugin(new GitPlugin());
   //   console.log('GitPlugin: enabled'); //XXX

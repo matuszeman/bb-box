@@ -21,11 +21,12 @@ class DockerComposeRuntime extends AbstractService {
   async run(params) {
     this.params(params, {
       service: Joi.object(),
-      op: Joi.string()
+      op: Joi.string(),
+      ctx: Joi.object()
     });
 
     //we don't do `params = this.params(...)` as we want original reference of the service
-    const {service, op} = params;
+    const {service, op, ctx} = params;
 
     const serviceName = service.dockerCompose.service;
 
@@ -62,6 +63,10 @@ class DockerComposeRuntime extends AbstractService {
           _.each(service.env, (val, key) => {
             args.push('-e', `${key}="${val}"`);
           });
+
+          if (ctx.sshKeysPath) {
+            args.push(`-v ${ctx.sshKeysPath}:/home/node/.ssh`)
+          }
         }
 
         this.spawn('docker-compose', [...fileArgs, cmd, ...args, serviceName, 'bbox', op, '--skip-dependencies'], {
