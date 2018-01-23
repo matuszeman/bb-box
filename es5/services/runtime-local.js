@@ -29,7 +29,8 @@ class RuntimeLocal extends AbstractService {
     return (0, _asyncToGenerator3.default)(function* () {
       _this.params(params, {
         service: Joi.object(),
-        op: Joi.string()
+        op: Joi.string(),
+        ctx: Joi.object()
       });
 
       //need references not clones so we don't do `params = this.params()`

@@ -32,11 +32,12 @@ class DockerComposeRuntime extends AbstractService {
     return (0, _asyncToGenerator3.default)(function* () {
       _this.params(params, {
         service: Joi.object(),
-        op: Joi.string()
+        op: Joi.string(),
+        ctx: Joi.object()
       });
 
       //we don't do `params = this.params(...)` as we want original reference of the service
-      const { service, op } = params;
+      const { service, op, ctx } = params;
 
       const serviceName = service.dockerCompose.service;
 
@@ -59,7 +60,7 @@ class DockerComposeRuntime extends AbstractService {
             cmd = 'exec';
           }
 
-          const args = ['--no-deps'];
+          const args = [];
           const userGroup = _this.getUserGroup();
           if (userGroup) {
             args.push(`--user "${userGroup}"`);
@@ -71,6 +72,10 @@ class DockerComposeRuntime extends AbstractService {
             _.each(service.env, function (val, key) {
               args.push('-e', `${key}="${val}"`);
             });
+
+            if (ctx.sshKeysPath) {
+              args.push(`-v ${ctx.sshKeysPath}:/home/node/.ssh`);
+            }
           }
 
           _this.spawn('docker-compose', [...fileArgs, cmd, ...args, serviceName, 'bbox', op, '--skip-dependencies'], {
