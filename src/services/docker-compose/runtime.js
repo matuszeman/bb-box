@@ -65,6 +65,7 @@ class DockerComposeRuntime extends AbstractService {
           });
 
           if (ctx.sshKeysPath) {
+            //TODO this might not be even supported by the image - should be configurable at least!
             args.push(`-v ${ctx.sshKeysPath}:/home/node/.ssh`)
           }
         }

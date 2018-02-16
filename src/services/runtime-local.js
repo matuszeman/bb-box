@@ -64,18 +64,16 @@ class RuntimeLocal extends AbstractService {
       }
 
       //run the operation itself
-      if (_.isUndefined(some)) {
+      if (some) {
+        await this.runOperation(service, some);
+      } else {
         this.logger.log({
           level: 'warn',
           msg: `[${service.name}] no "${op}" op`
         });
-        return;
       }
 
-      await this.runOperation(service, some);
-
       process.env = processEnv;
-
       this.shell.popd();
       return;
     }
