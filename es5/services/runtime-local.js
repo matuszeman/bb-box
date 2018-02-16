@@ -74,18 +74,16 @@ class RuntimeLocal extends AbstractService {
         }
 
         //run the operation itself
-        if (_.isUndefined(some)) {
+        if (some) {
+          yield _this.runOperation(service, some);
+        } else {
           _this.logger.log({
             level: 'warn',
             msg: `[${service.name}] no "${op}" op`
           });
-          return;
         }
 
-        yield _this.runOperation(service, some);
-
         process.env = processEnv;
-
         _this.shell.popd();
         return;
       }
