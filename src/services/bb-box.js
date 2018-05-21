@@ -94,6 +94,24 @@ class BbBox extends AbstractService {
     return this.runOp(params);
   }
 
+  async shell(params) {
+    params = this.params(params, {
+      service: Joi.string()
+    });
+
+    const service = await this.discover();
+    if (!service.services[params.service]) {
+      throw new Error('Not existing service');
+    }
+
+    const runtime = await this.getRuntime(params.service);
+    await runtime.shell({
+      service,
+      op: params.op,
+      ctx
+    });
+  }
+
   async runOp(params) {
     params = this.params(params, {
       op: Joi.string().allow('install', 'update', 'start', 'stop', 'reset', 'status'),
@@ -266,7 +284,7 @@ class BbBox extends AbstractService {
     };
 
     const filePath = cwd + '/bb-box.js';
-    if (this.shell.test('-f', filePath)) {
+    if (this._shell.test('-f', filePath)) {
       ret = this.loadServiceFile(filePath);
     }
 
@@ -356,24 +374,24 @@ class BbBox extends AbstractService {
   loadServiceFile(p) {
     const dir = path.dirname(p);
 
-    this.shell.pushd(dir);
+    this._shell.pushd(dir);
 
     const file = require(p);
 
     const localPath = dir + '/bb-box.local.js';
-    if (this.shell.test('-f', localPath)) {
+    if (this._shell.test('-f', localPath)) {
       const local = require(localPath);
       _.merge(file, local);
     }
 
     const statePath = dir + '/bb-box.state.json';
-    if (this.shell.test('-f', statePath)) {
+    if (this._shell.test('-f', statePath)) {
       file.state = require(statePath);
     } else {
       file.state = {};
     }
 
-    this.shell.popd();
+    this._shell.popd();
 
     file.cwd = dir;
 
@@ -443,7 +461,7 @@ class BbBox extends AbstractService {
     return this.runtimes[runtimeName];
   }
 
-  get shell() {
+  get _shell() {
     //https://github.com/shelljs/shelljs#configsilent
     shell.config.reset();
     shell.config.silent = true;

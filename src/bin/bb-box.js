@@ -86,11 +86,6 @@ async function runBoxOp(box, op, services, cmd) {
     params.skipDependencies = true;
   }
 
-  process.on('SIGINT', async function () {
-    await box.shutdown();
-    process.exit(0);
-  });
-
   if (!box[op]) {
     throw new Error(`No ${op} implemented on BbBox`);
   }
@@ -108,6 +103,10 @@ async function runBoxOp(box, op, services, cmd) {
   const program = require('commander');
 
   const box = await createBox(program);
+  process.on('SIGINT', async function () {
+    await box.shutdown();
+    process.exit(0);
+  });
 
   program
     .version(require('../../package.json').version);
@@ -129,6 +128,21 @@ async function runBoxOp(box, op, services, cmd) {
 
   createCommand(program, 'status [services...]')
     .action(_.partial(runBoxOp, box, 'status'));
+
+  createCommand(program, 'shell <service>')
+    .action(async (service, cmd) => {
+      const params = {
+        service,
+      };
+
+      try {
+        await box.shell(params);
+      } catch(e) {
+        console.error(e); //XXX
+      }
+
+      await box.shutdown();
+    });
 
   program.command('help')
     .action(function() {
