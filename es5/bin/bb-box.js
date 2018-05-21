@@ -80,11 +80,6 @@ let runBoxOp = (() => {
       params.skipDependencies = true;
     }
 
-    process.on('SIGINT', (0, _asyncToGenerator3.default)(function* () {
-      yield box.shutdown();
-      process.exit(0);
-    }));
-
     if (!box[op]) {
       throw new Error(`No ${op} implemented on BbBox`);
     }
@@ -127,6 +122,10 @@ function createCommand(program, cmd) {
   const program = require('commander');
 
   const box = yield createBox(program);
+  process.on('SIGINT', (0, _asyncToGenerator3.default)(function* () {
+    yield box.shutdown();
+    process.exit(0);
+  }));
 
   program.version(require('../../package.json').version);
 
@@ -141,6 +140,26 @@ function createCommand(program, cmd) {
   createCommand(program, 'reset [services...]').action(_.partial(runBoxOp, box, 'reset'));
 
   createCommand(program, 'status [services...]').action(_.partial(runBoxOp, box, 'status'));
+
+  createCommand(program, 'shell <service>').action((() => {
+    var _ref5 = (0, _asyncToGenerator3.default)(function* (service, cmd) {
+      const params = {
+        service
+      };
+
+      try {
+        yield box.shell(params);
+      } catch (e) {
+        console.error(e); //XXX
+      }
+
+      yield box.shutdown();
+    });
+
+    return function (_x6, _x7) {
+      return _ref5.apply(this, arguments);
+    };
+  })());
 
   program.command('help').action(function () {
     program.help();

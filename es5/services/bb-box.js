@@ -138,17 +138,39 @@ class BbBox extends AbstractService {
     })();
   }
 
-  runOp(params) {
+  shell(params) {
     var _this8 = this;
 
     return (0, _asyncToGenerator3.default)(function* () {
       params = _this8.params(params, {
+        service: Joi.string()
+      });
+
+      const service = yield _this8.discover();
+      if (!service.services[params.service]) {
+        throw new Error('Not existing service');
+      }
+
+      const runtime = yield _this8.getRuntime(params.service);
+      yield runtime.shell({
+        service,
+        op: params.op,
+        ctx
+      });
+    })();
+  }
+
+  runOp(params) {
+    var _this9 = this;
+
+    return (0, _asyncToGenerator3.default)(function* () {
+      params = _this9.params(params, {
         op: Joi.string().allow('install', 'update', 'start', 'stop', 'reset', 'status'),
         services: Joi.array().optional(),
         skipDependencies: Joi.boolean().optional().default(false)
       });
 
-      const service = yield _this8.discover();
+      const service = yield _this9.discover();
 
       const ctx = {
         ran: {}
@@ -179,7 +201,7 @@ class BbBox extends AbstractService {
       }
 
       for (const ser of services) {
-        yield _this8.run({
+        yield _this9.run({
           service: ser,
           op: params.op,
           ctx,
@@ -188,18 +210,18 @@ class BbBox extends AbstractService {
       }
 
       if (params.op === 'status') {
-        _this8.outputInfo(service);
+        _this9.outputInfo(service);
       }
     })();
   }
 
   run(params) {
-    var _this9 = this;
+    var _this10 = this;
 
     return (0, _asyncToGenerator3.default)(function* () {
       //we want this by reference, this.params clones the params
       const { service, ctx } = params;
-      params = _this9.params(params, {
+      params = _this10.params(params, {
         service: serviceSchema,
         op: Joi.string().allow('install', 'update', 'start', 'stop', 'reset', 'status'),
         ctx: Joi.object(),
@@ -213,14 +235,14 @@ class BbBox extends AbstractService {
 
       const serviceName = `[${service.name}@${service.runtime}]`;
 
-      yield _this9.runPlugins(`on${_.upperFirst(params.op)}Before`, {
+      yield _this10.runPlugins(`on${_.upperFirst(params.op)}Before`, {
         service: params.service,
         ctx
       });
 
       let runDependecies = true;
       if (params.op !== 'stop') {
-        yield _this9._runDependencies(ctx, service, params);
+        yield _this10._runDependencies(ctx, service, params);
         runDependecies = false;
       }
 
@@ -234,31 +256,31 @@ class BbBox extends AbstractService {
       }
 
       if (disableOp) {
-        _this9.logger.log({
+        _this10.logger.log({
           level: 'info',
           msg: `${serviceName} Skipping ${params.op}`
         });
 
         if (runDependecies) {
-          yield _this9._runDependencies(ctx, service, params);
+          yield _this10._runDependencies(ctx, service, params);
         }
 
         return;
       }
 
-      _this9.logger.log({
+      _this10.logger.log({
         level: 'info',
         msg: `${serviceName} ${params.op}...`
       });
 
-      const runtime = yield _this9.getRuntime(service);
+      const runtime = yield _this10.getRuntime(service);
       yield runtime.run({
         service,
         op: params.op,
         ctx
       });
 
-      yield _this9.runPlugins(`on${_.upperFirst(params.op)}After`, {
+      yield _this10.runPlugins(`on${_.upperFirst(params.op)}After`, {
         service: params.service,
         ctx
       });
@@ -270,19 +292,19 @@ class BbBox extends AbstractService {
         fs.writeFileSync(service.cwd + '/bb-box.state.json', (0, _stringify2.default)(service.state, null, 2));
       }
 
-      _this9.logger.log({
+      _this10.logger.log({
         level: 'info',
         msg: `${serviceName} ... done`
       });
 
       if (runDependecies) {
-        yield _this9._runDependencies(ctx, service, params);
+        yield _this10._runDependencies(ctx, service, params);
       }
     })();
   }
 
   _runDependencies(ctx, service, params) {
-    var _this10 = this;
+    var _this11 = this;
 
     return (0, _asyncToGenerator3.default)(function* () {
       if (!params.skipDependencies && !_.isEmpty(service.dependsOn)) {
@@ -292,7 +314,7 @@ class BbBox extends AbstractService {
             throw new Error(`Unknown peer service ${dep} of ${service.name}`);
           }
 
-          yield _this10.run({
+          yield _this11.run({
             service: peerService,
             op: params.op,
             ctx: ctx
@@ -300,7 +322,7 @@ class BbBox extends AbstractService {
 
           //start peer services for install/update
           if (params.op === 'install' || params.op === 'update') {
-            yield _this10.run({
+            yield _this11.run({
               service: peerService,
               op: 'start',
               ctx: ctx
@@ -312,11 +334,11 @@ class BbBox extends AbstractService {
   }
 
   discover(cwd) {
-    var _this11 = this;
+    var _this12 = this;
 
     return (0, _asyncToGenerator3.default)(function* () {
       if (!cwd) {
-        cwd = _this11.options.cwd;
+        cwd = _this12.options.cwd;
       }
 
       let ret = {
@@ -324,15 +346,15 @@ class BbBox extends AbstractService {
       };
 
       const filePath = cwd + '/bb-box.js';
-      if (_this11.shell.test('-f', filePath)) {
-        ret = _this11.loadServiceFile(filePath);
+      if (_this12._shell.test('-f', filePath)) {
+        ret = _this12.loadServiceFile(filePath);
       }
 
       _.defaults(ret, {
         runtime: 'local'
       });
 
-      let services = yield _this11.discoverServices(cwd);
+      let services = yield _this12.discoverServices(cwd);
       ret.services = _.defaultsDeep({}, ret.services, services);
 
       const hostIp = iplib.address();
@@ -353,7 +375,7 @@ class BbBox extends AbstractService {
             };
           });
         } else if (_.isUndefined(expose)) {
-          _this11.logger.log({
+          _this12.logger.log({
             level: 'warn',
             msg: `Service ${name} does not have any exposed ports`
           });
@@ -376,10 +398,10 @@ class BbBox extends AbstractService {
   }
 
   findService(serviceName) {
-    var _this12 = this;
+    var _this13 = this;
 
     return (0, _asyncToGenerator3.default)(function* () {
-      const service = yield _this12.discover();
+      const service = yield _this13.discover();
       if (!service.services || !service.services[serviceName]) {
         return null;
       }
@@ -417,24 +439,24 @@ class BbBox extends AbstractService {
   loadServiceFile(p) {
     const dir = path.dirname(p);
 
-    this.shell.pushd(dir);
+    this._shell.pushd(dir);
 
     const file = require(p);
 
     const localPath = dir + '/bb-box.local.js';
-    if (this.shell.test('-f', localPath)) {
+    if (this._shell.test('-f', localPath)) {
       const local = require(localPath);
       _.merge(file, local);
     }
 
     const statePath = dir + '/bb-box.state.json';
-    if (this.shell.test('-f', statePath)) {
+    if (this._shell.test('-f', statePath)) {
       file.state = require(statePath);
     } else {
       file.state = {};
     }
 
-    this.shell.popd();
+    this._shell.popd();
 
     file.cwd = dir;
 
@@ -450,7 +472,7 @@ class BbBox extends AbstractService {
   }
 
   discoverServices(cwd) {
-    var _this13 = this;
+    var _this14 = this;
 
     return (0, _asyncToGenerator3.default)(function* () {
       const paths = globby.sync('*/bb-box.js', {
@@ -461,14 +483,14 @@ class BbBox extends AbstractService {
       const services = {};
       for (const p of paths) {
         try {
-          const file = _this13.loadServiceFile(p);
+          const file = _this14.loadServiceFile(p);
           services[file.name] = file;
         } catch (e) {
           throw new Error(`Service file error. Service disabled. ${p}: ${e}\n${e.stack}`);
         }
       }
 
-      const pluginServices = yield _this13.runPlugins('discoverServices');
+      const pluginServices = yield _this14.runPlugins('discoverServices');
 
       //TODO do some magic to merge/select values from discovered plugin services
       _.defaultsDeep(services, pluginServices);
@@ -485,12 +507,12 @@ class BbBox extends AbstractService {
    * @returns {Promise.<void>}
    */
   runPlugins(hook, params) {
-    var _this14 = this;
+    var _this15 = this;
 
     return (0, _asyncToGenerator3.default)(function* () {
       const ret = {};
 
-      for (const plugin of _this14.plugins) {
+      for (const plugin of _this15.plugins) {
         if (!_.isFunction(plugin[hook])) {
           continue;
         }
@@ -504,19 +526,19 @@ class BbBox extends AbstractService {
   }
 
   getRuntime(service) {
-    var _this15 = this;
+    var _this16 = this;
 
     return (0, _asyncToGenerator3.default)(function* () {
       const runtimeName = _.get(service, 'runtime', 'local');
-      if (!_this15.runtimes[runtimeName]) {
+      if (!_this16.runtimes[runtimeName]) {
         throw new Error(`No runtime registered ${runtimeName}`);
       }
 
-      return _this15.runtimes[runtimeName];
+      return _this16.runtimes[runtimeName];
     })();
   }
 
-  get shell() {
+  get _shell() {
     //https://github.com/shelljs/shelljs#configsilent
     shell.config.reset();
     shell.config.silent = true;
