@@ -35,11 +35,12 @@ class DockerComposeRuntime extends AbstractService {
     ];
     const platformFile = `docker-compose.${os.platform()}.yml`;
     if (this.shell.test('-f', platformFile)) {
-      this.logger.log({
-        level: 'info',
-        msg: `Using platform file: ${platformFile}`
-      });
       fileArgs.push(`-f ${platformFile}`);
+    }
+
+    const overwriteFile = 'docker-compose.override.yml';
+    if (this.shell.test('-f', overwriteFile)) {
+      fileArgs.push(`-f ${overwriteFile}`);
     }
 
     switch(op) {
