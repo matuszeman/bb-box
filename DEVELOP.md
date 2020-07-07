@@ -11,5 +11,3 @@ sudo apt install libssl-dev
 ## Parallel operations
 
 Install/update could be done in parallel
-
-https://github.com/robrich/orchestrator

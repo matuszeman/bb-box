@@ -28,7 +28,7 @@ npm i -g @kapitchi/bb-box
 Install services
 
 ```
-bb-box install
+bbox install
 ```
 
 Runs:
@@ -42,7 +42,7 @@ Runs:
 Updates services
 
 ```
-bb-box update
+bbox update
 ```
 
 Runs:
@@ -56,7 +56,7 @@ Runs:
 Start services
 
 ```
-bb-box start
+bbox start
 ```
 
 
@@ -65,7 +65,7 @@ bb-box start
 Stop services
 
 ```
-bb-box stop
+bbox stop
 ```
 
 ## Service status
@@ -73,6 +73,6 @@ bb-box stop
 Prints service status
 
 ```
-bb-box status
+bbox status
 ```
 
