@@ -228,7 +228,7 @@ class RuntimeLocal extends AbstractService {
         try {
           await pm2.stopAsync(service.name);
         } catch (e) {
-          if (e.message !== 'process name not found') {
+          if (e.message !== 'process or namespace not found') {
             throw e;
           }
           this.logger.log({
