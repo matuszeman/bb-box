@@ -53,9 +53,14 @@ class DockerComposeRuntime extends AbstractService {
         }
 
         const args = [];
-        const userGroup = this.getUserGroup();
-        if (userGroup) {
-          args.push(`--user "${userGroup}"`);
+        // Add user to linux platform only
+        // MacOS or Windows uses virtual machine where this is not necessary
+        // and files created by the container are owned by current user
+        if (os.platform() === 'linux') {
+          const userGroup = this.getUserGroup();
+          if (userGroup) {
+            args.push(`--user "${userGroup}"`);
+          }
         }
 
         if (cmd === 'run') {
