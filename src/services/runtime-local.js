@@ -158,11 +158,11 @@ class RuntimeLocal extends AbstractService {
 
     switch (op) {
       case 'start':
-        const some = service[op];
+        const startOp = service[op];
         const env = _.defaults({}, service.env);
 
         // file path to PM2 ecosystem file
-        if (_.isString(some)) {
+        if (_.isString(startOp)) {
           this.shell.pushd(service.cwd);
           try {
             // const runSpec = {
@@ -173,7 +173,10 @@ class RuntimeLocal extends AbstractService {
             //   //force: true,
             //   env,
             // };
-            const ret = await pm2.startAsync(some, {
+            // https://pm2.keymetrics.io/docs/usage/pm2-api/
+            const ret = await pm2.startAsync({
+              script: startOp,
+              name: service.name,
               env
             });
             if (_.isEmpty(ret)) {
@@ -188,8 +191,8 @@ class RuntimeLocal extends AbstractService {
             throw e;
           }
           this.shell.popd();
-        } else if (_.isObject(some)) {
-          const pm2Process = _.defaults({}, some, {
+        } else if (_.isObject(startOp)) {
+          const pm2Process = _.defaults({}, startOp, {
             name: service.name,
             cwd: service.cwd,
             env,
@@ -290,7 +293,7 @@ class RuntimeLocal extends AbstractService {
       this.pm2 = pm2;
     }
 
-    this.pm2.cwd = service.cwd;
+    this.pm2.absolutePath = service.cwd;
 
     return this.pm2;
   }

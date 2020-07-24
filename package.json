@@ -2,9 +2,9 @@
   "name": "@kapitchi/bb-box",
   "version": "0.17.0",
   "description": "Development box",
-  "main": "es5/src/index.js",
+  "main": "build/index.js",
   "bin": {
-    "bbox": "./bin/bbox.js"
+    "bbox": "./build/bin/bbox.js"
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
@@ -16,18 +16,22 @@
     "@kapitchi/bb-dic": "1.5.2",
     "@kapitchi/bb-service": "^1.4.0",
     "bluebird": "^3.5.0",
-    "commander": "^2.11.0",
+    "commander": "^5.1.0",
+    "docker-compose": "^0.23.5",
     "dockerode": "^2.5.1",
-    "globby": "^6.1.0",
+    "globby": "^11.0.1",
+    "http-proxy": "^1.18.1",
     "inquirer": "^3.3.0",
     "ip": "^1.1.5",
     "joi": "^11.0.2",
-    "lodash": "^4.17.4",
-    "shelljs": "^0.7.8",
+    "joiful": "^2.0.1",
+    "lodash": "^4.14.2",
+    "md5": "^2.2.1",
+    "shelljs": "^0.8.4",
     "yamljs": "^0.3.0"
   },
   "peerDependencies": {
-    "pm2": ">2.4"
+    "pm2": ">=4.2"
   },
   "engines": {
     "node": ">=7.6.0"
@@ -43,5 +47,13 @@
     "type": "git",
     "url": "https://github.com/matuszeman/bb-box"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "@types/lodash": "^4.14.157",
+    "@types/node": "^14.0.23",
+    "@types/reflect-metadata": "^0.1.0",
+    "@types/shelljs": "^0.8.8",
+    "@types/yamljs": "^0.2.31",
+    "ts-node": "^8.10.2",
+    "typescript": "^3.9.6"
+  }
 }

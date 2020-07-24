@@ -19,7 +19,7 @@ class DockerComposePlugin extends AbstractService {
   discoverServices() {
     try {
       const host = this.dockerDiscovery.getHost();
-        
+
       const compose = YAML.load('docker-compose.yml');
       const ret = {};
       for (const serviceName in compose.services) {
@@ -27,10 +27,10 @@ class DockerComposePlugin extends AbstractService {
 
         const def = _.omitBy({
           name: serviceName,
-          dockerCompose: {
+          runtime: 'docker-compose',
+          runtimeOpts: {
             service: serviceName
           },
-          runtime: 'docker-compose',
           dependsOn: service.depends_on
         }, _.isUndefined);
 

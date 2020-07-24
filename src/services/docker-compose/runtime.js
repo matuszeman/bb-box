@@ -28,7 +28,7 @@ class DockerComposeRuntime extends AbstractService {
     //we don't do `params = this.params(...)` as we want original reference of the service
     const {service, op, ctx} = params;
 
-    const serviceName = service.dockerCompose.service;
+    const serviceName = service.runtimeOpts.service;
 
     const fileArgs = [
       '-f docker-compose.yml'

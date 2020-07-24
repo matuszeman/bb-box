@@ -150,6 +150,11 @@ class BbBox extends AbstractService {
       }
     }
 
+    await this.runPlugins(`on${_.upperFirst(params.op)}BeforeAll`, {
+      services: services,
+      ctx,
+    });
+
     for (const ser of services) {
       await this.run({
         service: ser,
@@ -158,6 +163,11 @@ class BbBox extends AbstractService {
         skipDependencies: params.skipDependencies
       });
     }
+
+    await this.runPlugins(`on${_.upperFirst(params.op)}AfterAll`, {
+      services: services,
+      ctx,
+    });
 
     if (params.op === 'status') {
       this.outputInfo(service);
@@ -204,7 +214,7 @@ class BbBox extends AbstractService {
     if (disableOp) {
       this.logger.log({
         level: 'info',
-        msg: `${serviceName} Skipping ${params.op}`
+        msg: `${serviceName} "${params.op}" op disabled`
       });
 
       if (runDependecies) {
@@ -235,13 +245,18 @@ class BbBox extends AbstractService {
       if (!service.cwd) {
         throw new Error('Service has no "cwd" set');
       }
-      fs.writeFileSync(service.cwd + '/bb-box.state.json', JSON.stringify(service.state, null, 2));
+      fs.writeFileSync(service.cwd + '/bbox.state.json', JSON.stringify(service.state, null, 2));
+      // @deprecated
+      let deprecatedStatePath = service.cwd + '/bb-box.state.json';
+      if (this._shell.test('-f', deprecatedStatePath)) {
+        this._shell.rm(deprecatedStatePath);
+      }
     }
 
-    this.logger.log({
-      level: 'info',
-      msg: `${serviceName} ... done`
-    });
+    // this.logger.log({
+    //   level: 'info',
+    //   msg: `${serviceName} ... done`
+    // });
 
     if (runDependecies) {
       await this._runDependencies(ctx, service, params);
@@ -279,24 +294,54 @@ class BbBox extends AbstractService {
       cwd = this.options.cwd;
     }
 
-    let ret = {
-      name: 'ROOT'
-    };
-
-    const filePath = cwd + '/bb-box.js';
-    if (this._shell.test('-f', filePath)) {
-      ret = this.loadServiceFile(filePath);
-    }
+    const filePath = cwd + '/TODO';
+    const ret = this.loadServiceFile(filePath);
 
     _.defaults(ret, {
       runtime: 'local'
     });
 
     let services = await this.discoverServices(cwd);
+
+    // flatten services
+    for (const serviceKey in services) {
+      const service = services[serviceKey];
+      if (service.apps) {
+        for (const app of service.apps) {
+          if (!app.name) {
+            throw new Error('app name must be specified');
+          }
+          const subService = {
+            parent: service,
+            state: service.state,
+          };
+          services[app.name] = app;
+
+          app.parent = service;
+          // inherit from parent service
+          app.state = service.state;
+          if (!app.runtime) {
+            app.runtime = service.runtime;
+            app.runtimeOpts = service.runtimeOpts;
+          }
+          app.cwd = service.cwd;
+          app.disableOps = {
+            install: true,
+            update: true,
+            reset: true
+          }
+        }
+      }
+
+      delete service.services;
+    }
+
+    console.log(services); // XXX
+
     ret.services = _.defaultsDeep({}, ret.services, services);
-      
+
     const hostIp = iplib.address();
-    
+
     //normalize service properties and set the parent
     for (const name in ret.services) {
       const ser = ret.services[name];
@@ -325,7 +370,6 @@ class BbBox extends AbstractService {
 
       ser.expose = expose;
 
-      ser.parent = ret;
       ser.env = _.defaults({}, ret.services[name].env, ret.globalEnv);
       ser.exec = _.defaults({}, ret.services[name].exec, _.get(ret, 'defaults.exec'));
       _.defaults(ser, {
@@ -376,15 +420,34 @@ class BbBox extends AbstractService {
 
     this._shell.pushd(dir);
 
-    const file = require(p);
+    const file = {};
+    let masterPath = dir + '/bbox.config.js';
+    if (!this._shell.test('-f', masterPath)) {
+      // @deprecated
+      masterPath = dir + '/bb-box.js';
+    }
+    if (this._shell.test('-f', masterPath)) {
+      const master = require(masterPath);
+      _.merge(file, master);
+    }
 
-    const localPath = dir + '/bb-box.local.js';
+    let localPath = dir + '/bbox.local.js';
+    console.log(dir); // XXX
+    if (!this._shell.test('-f', localPath)) {
+      // @deprecated
+      localPath = dir + '/bb-box.local.js';
+    }
     if (this._shell.test('-f', localPath)) {
       const local = require(localPath);
       _.merge(file, local);
     }
 
-    const statePath = dir + '/bb-box.state.json';
+    let statePath = dir + '/bbox.state.json';
+    if (!this._shell.test('-f', statePath)) {
+      // @deprecated
+      statePath = dir + '/bb-box.state.json';
+    }
+
     if (this._shell.test('-f', statePath)) {
       file.state = require(statePath);
     } else {
@@ -407,9 +470,13 @@ class BbBox extends AbstractService {
   }
 
   async discoverServices(cwd) {
-    const paths = globby.sync('*/bb-box.js', {
+    const paths = globby.sync([
+      '*/bb-box.js', // @deprecated
+      '*/bbox.js'
+    ], {
       cwd: cwd,
-      absolute: true
+      absolute: true,
+      gitignore: true
     });
 
     const services = {};
