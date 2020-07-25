@@ -1,3 +1,3 @@
 #!/usr/bin/env node
 
-require('../src/bin/bbox');
+require('../build/bin/bbox');

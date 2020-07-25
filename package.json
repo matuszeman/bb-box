@@ -2,9 +2,10 @@
   "name": "@kapitchi/bb-box",
   "version": "0.17.0",
   "description": "Development box",
-  "main": "build/index.js",
+  "main": "build/bbox.js",
+  "types": "build/bbox.d.ts",
   "bin": {
-    "bbox": "./build/bin/bbox.js"
+    "bbox": "./bin/bbox.js"
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
