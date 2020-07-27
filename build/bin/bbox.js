@@ -1,5 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+require("reflect-metadata");
 const commander_1 = require("commander");
 const bbox_1 = require("../bbox");
 const process = require("process");

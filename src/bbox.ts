@@ -172,8 +172,7 @@ export class Bbox {
     }
 
     if (module.runtime === Runtime.DockerCompose) {
-      //await this.runDockerCompose(module, `bbox build ${module.name}`, ctx);
-      await this.runDockerCompose(module, `npm i`, ctx);
+      await this.runDockerCompose(module, `bbox build ${module.name}`, ctx);
     } else {
       await this.runner.run(module, module.build, ctx);
     }

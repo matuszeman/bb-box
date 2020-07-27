@@ -1,3 +1,4 @@
+import 'reflect-metadata';
 import {Command} from 'commander';
 import {Bbox, ServiceCommandParams, FileManager, ProcessManager, Runner} from '../bbox';
 import * as process from 'process';
