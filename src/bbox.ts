@@ -357,10 +357,10 @@ export class FileManager {
         foundAppModule.availableRuntimes.push(Runtime.DockerCompose);
       }
     } catch (e) {
-      if (e.err.includes('Can\'t find a suitable configuration file')) {
+      if (e.err && e.err.includes('Can\'t find a suitable configuration file')) {
         console.log('No docker-compose configuration found'); // XXX
       } else {
-        console.log(`DockerComposer error: ${e.err}`); // XXX
+        console.log('DockerComposer error', e); // XXX
       }
     }
 
