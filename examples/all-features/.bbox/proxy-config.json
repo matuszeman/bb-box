@@ -1,0 +1,7 @@
+{
+  "forward": {
+    "container-info.local.app.garden": "http://localhost:3000",
+    "container-info2.local.app.garden": "http://localhost:3001",
+    "mongo.local.app.garden": "http://localhost:27017"
+  }
+}

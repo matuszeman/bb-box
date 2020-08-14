@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "lib": ["es2019", "es2020.bigint", "es2020.string", "es2020.symbol.wellknown"],
+    "module": "commonjs",
+    "target": "es2019",
+    "sourceMap": true,
+    "allowJs": true
+  },
+  "include": [
+    "bbox/*",
+    "ts-app.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+}

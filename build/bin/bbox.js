@@ -1,14 +1,15 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-require("reflect-metadata");
 const commander_1 = require("commander");
 const bbox_1 = require("../bbox");
 const process = require("process");
-function createBox() {
+async function createBox() {
     const fileManager = new bbox_1.FileManager();
     const runner = new bbox_1.Runner();
     const processManager = new bbox_1.ProcessManager();
-    return new bbox_1.Bbox({ cwd: process.cwd() }, fileManager, runner, processManager);
+    const bbox = new bbox_1.Bbox({ rootPath: fileManager.discoverRootPath(process.cwd()) }, fileManager, runner, processManager);
+    await bbox.init();
+    return bbox;
 }
 function createServiceCommand(program, cmd) {
     return program.command(`${cmd} [services...]`)
@@ -45,21 +46,32 @@ function runServiceCommand(bbox, handler) {
     program.passCommandToAction(true);
     program.allowUnknownOption(false);
     program.storeOptionsAsProperties(false);
-    const box = await createBox();
+    const bbox = await createBox();
     process.on('SIGINT', async function () {
-        await box.shutdown();
+        await bbox.shutdown();
         process.exit(0);
     });
     program.version(require('../../package.json').version);
     createServiceCommand(program, 'build')
-        .action(runServiceCommand(box, box.build));
+        .action(runServiceCommand(bbox, bbox.build));
     createServiceCommand(program, 'start')
-        .action(runServiceCommand(box, box.start));
+        .action(runServiceCommand(bbox, bbox.start));
     createServiceCommand(program, 'stop')
-        .action(runServiceCommand(box, box.stop));
+        .action(runServiceCommand(bbox, bbox.stop));
     createServiceCommand(program, 'migrate')
-        .action(runServiceCommand(box, box.migrate));
+        .action(runServiceCommand(bbox, bbox.migrate));
     program.command('list')
-        .action(runCommand(box, box.list));
+        .action(runCommand(bbox, bbox.list));
+    createServiceCommand(program, 'test')
+        .action(runServiceCommand(bbox, bbox.test));
+    // program.command('proxy')
+    //   .action(runCommand(box, box.proxy));
+    program.command('proxy:build')
+        .action(runCommand(bbox, bbox.proxyBuild));
+    //.option('--runnable <string>', 'Command to run');
+    program.command('run')
+        .action(runCommand(bbox, bbox.run))
+        .option('--runnable <string>', 'Command to run');
     await program.parseAsync(process.argv);
 })();
+//# sourceMappingURL=bbox.js.map

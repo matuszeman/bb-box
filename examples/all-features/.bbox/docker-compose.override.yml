@@ -1,0 +1,6 @@
+version: '3'
+services:
+    container-info: {extra_hosts: ['container-info.local.app.garden:172.17.0.1', 'container-info2.local.app.garden:172.17.0.1', 'mongo.local.app.garden:172.17.0.1']}
+    container-info2: {extra_hosts: ['container-info.local.app.garden:172.17.0.1', 'container-info2.local.app.garden:172.17.0.1', 'mongo.local.app.garden:172.17.0.1']}
+    mongo: {extra_hosts: ['container-info.local.app.garden:172.17.0.1', 'container-info2.local.app.garden:172.17.0.1', 'mongo.local.app.garden:172.17.0.1']}
+    node: {extra_hosts: ['container-info.local.app.garden:172.17.0.1', 'container-info2.local.app.garden:172.17.0.1', 'mongo.local.app.garden:172.17.0.1']}

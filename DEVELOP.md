@@ -11,6 +11,9 @@ https://github.com/qoomon/docker-host
 
 # Ideas
 
+## Reverse proxy
+https://github.com/OptimalBits/redbird
+
 ## Parallel operations
 
 Install/update could be done in parallel

@@ -6,3 +6,9 @@ services:
     working_dir: /bbox
     volumes:
       - ./node:/bbox
+  container-info:
+    image: matuszeman/container-info
+  container-info2:
+    image: matuszeman/container-info
+  mongo:
+    image: mongo:3.6

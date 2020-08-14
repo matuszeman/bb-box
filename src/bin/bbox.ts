@@ -1,13 +1,14 @@
-import 'reflect-metadata';
 import {Command} from 'commander';
 import {Bbox, ServiceCommandParams, FileManager, ProcessManager, Runner} from '../bbox';
 import * as process from 'process';
 
-function createBox() {
+async function createBox() {
   const fileManager = new FileManager();
   const runner = new Runner();
   const processManager = new ProcessManager();
-  return new Bbox({cwd: process.cwd()}, fileManager, runner, processManager);
+  const bbox = new Bbox({rootPath: fileManager.discoverRootPath(process.cwd())}, fileManager, runner, processManager);
+  await bbox.init();
+  return bbox;
 }
 
 function createServiceCommand(program: Command, cmd) {
@@ -49,28 +50,42 @@ function runServiceCommand(bbox: Bbox, handler) {
   program.allowUnknownOption(false);
   program.storeOptionsAsProperties(false);
 
-  const box = await createBox();
+  const bbox = await createBox();
   process.on('SIGINT', async function () {
-    await box.shutdown();
+    await bbox.shutdown();
     process.exit(0);
   });
 
   program.version(require('../../package.json').version);
 
   createServiceCommand(program, 'build')
-    .action(runServiceCommand(box, box.build));
+    .action(runServiceCommand(bbox, bbox.build));
 
   createServiceCommand(program, 'start')
-    .action(runServiceCommand(box, box.start));
+    .action(runServiceCommand(bbox, bbox.start));
 
   createServiceCommand(program, 'stop')
-    .action(runServiceCommand(box, box.stop));
+    .action(runServiceCommand(bbox, bbox.stop));
 
   createServiceCommand(program, 'migrate')
-    .action(runServiceCommand(box, box.migrate));
+    .action(runServiceCommand(bbox, bbox.migrate));
 
   program.command('list')
-    .action(runCommand(box, box.list));
+    .action(runCommand(bbox, bbox.list));
+
+  createServiceCommand(program, 'test')
+    .action(runServiceCommand(bbox, bbox.test));
+
+  // program.command('proxy')
+  //   .action(runCommand(box, box.proxy));
+
+  program.command('proxy:build')
+    .action(runCommand(bbox, bbox.proxyBuild))
+    //.option('--runnable <string>', 'Command to run');
+
+  program.command('run')
+    .action(runCommand(bbox, bbox.run))
+    .option('--runnable <string>', 'Command to run');
 
   await program.parseAsync(process.argv);
 })();

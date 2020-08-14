@@ -10,5 +10,10 @@
   "license": "ISC",
   "dependencies": {
     "@kapitchi/bb-box": "^0.17.0"
+  },
+  "devDependencies": {
+    "@types/node": "^14.0.27",
+    "ts-node": "^8.10.2",
+    "typescript": "^3.9.7"
   }
 }

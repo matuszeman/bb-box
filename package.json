@@ -9,7 +9,8 @@
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "build": "echo \"Error: no build specified\" && exit 1"
+    "build": "tsc",
+    "proxy:start": "npx ts-node-script ./src/proxy-server.ts"
   },
   "author": "Matus Zeman <matus.zeman@gmail.com>",
   "license": "MIT",
@@ -29,6 +30,7 @@
     "lodash": "^4.14.2",
     "md5": "^2.2.1",
     "pm2": "^4.4.0",
+    "redbird": "^0.10.0",
     "reflect-metadata": "^0.1.13",
     "shelljs": "^0.8.4",
     "yamljs": "^0.3.0"
@@ -51,12 +53,14 @@
     "url": "https://github.com/matuszeman/bb-box"
   },
   "devDependencies": {
+    "@types/http-proxy": "^1.17.4",
     "@types/lodash": "^4.14.157",
     "@types/node": "^14.0.23",
     "@types/reflect-metadata": "^0.1.0",
     "@types/shelljs": "^0.8.8",
     "@types/yamljs": "^0.2.31",
+    "source-map-support": "^0.5.19",
     "ts-node": "^8.10.2",
-    "typescript": "^3.9.6"
+    "typescript": "^3.9.7"
   }
 }
