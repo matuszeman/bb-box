@@ -5,7 +5,7 @@ import * as globby from 'globby';
 import * as shell from 'shelljs';
 import * as process from 'process';
 import { difference } from 'lodash';
-import { dirname } from 'path';
+import * as nodePath from 'path';
 import * as fs from 'fs';
 import * as pm2 from 'pm2';
 import {promisify} from 'util';
@@ -18,6 +18,7 @@ import {ls} from 'shelljs';
 //import {ProxyConfig} from './proxy-server';
 import * as YAML from 'yamljs'
 import {ProxyConfig} from './proxy-server';
+import {ProcessDescription} from 'pm2';
 
 export interface RunnableFnOpts {
   module: Module;
@@ -26,14 +27,32 @@ export interface RunnableFnOpts {
 //type RunnableFn = (RunnableFnOpts) => Promise<any>;
 //type Runnable = string | string[] | RunnableFn | RunnableFn[];
 type Runnable = string | string[];
+type Dependency = string;
 
+enum ServiceProcessStatus {
+  Unknown = 'Unknown',
+  Online = 'Online'
+}
+
+export interface SubService {
+  name: string;
+  port?: number;
+  containerPort?: number;
+}
 
 export interface Service {
   name: string;
   port?: number;
   containerPort?: number;
   start?: string;
-  env?: {[key: string]: any}
+  subServices?: {
+    [key: string]: SubService
+  }
+  process: {
+    status: ServiceProcessStatus
+  };
+  env?: {[key: string]: any},
+  dependencies?: Dependency[]
 }
 
 export enum Command {
@@ -66,6 +85,7 @@ export interface Module extends ModuleFile {
 }
 
 export interface Ctx {
+  projectOpts: ProjectOpts
 }
 
 export class ServiceCommandParams {
@@ -121,6 +141,7 @@ export class BboxOpts {
 }
 
 export class ProjectOpts {
+  rootPath: string;
   reverseProxy: {
     port: number
   };
@@ -139,8 +160,9 @@ export class Bbox {
     private processManager: ProcessManager
   ) {
     this.projectOpts = {
+      rootPath: opts.rootPath,
       reverseProxy: {
-        port: 8080
+        port: 80
       },
       domain: 'local.app.garden',
       proxyConfigPath: `${this.opts.rootPath}/.bbox/proxy-config.json`,
@@ -166,24 +188,37 @@ export class Bbox {
   async proxyBuild(params: ProxyBuildParams) {
     const modules = await this.getAllModules();
 
-    // reverse proxy server
-    const forward = {};
+    const proxyServices: {name: string, port?: number, domainName: string, ip: string}[] = [];
     for (const module of modules) {
       for (const service of module.services) {
-        if (!service.port) {
-          continue;
+        if (service.port) {
+          proxyServices.push({name: service.name, port: service.port, domainName: `${service.name}.${this.projectOpts.domain}`, ip: '172.17.0.1'});
         }
-
-        const origin = `${service.name}.${this.projectOpts.domain}`;
-        const destination = `http://localhost:${service.port}`;
-        forward[origin] = destination;
+        if (service.subServices) {
+          for (const subServiceKey of Object.keys(service.subServices)) {
+            const subService = service.subServices[subServiceKey];
+            proxyServices.push({
+              name: `${service.name}-${subService.name}`, port: subService.port,
+              domainName: `${subService.name}.${service.name}.${this.projectOpts.domain}`, ip: '172.17.0.1'
+            });
+          }
+        }
       }
     }
-    const config: ProxyConfig = {
+
+    const forward = {};
+    for (const proxyService of proxyServices) {
+      if (proxyService.port) {
+        const destination = `http://localhost:${proxyService.port}`;
+        forward[proxyService.domainName] = destination;
+      }
+    }
+
+    const proxyConfig: ProxyConfig = {
       port: this.projectOpts.reverseProxy.port,
       forward
     }
-    fs.writeFileSync(this.projectOpts.proxyConfigPath, JSON.stringify(config, null, 2));
+    fs.writeFileSync(this.projectOpts.proxyConfigPath, JSON.stringify(proxyConfig, null, 2));
 
     // docker compose
     const dockerComposePath = `${this.opts.rootPath}/docker-compose.yml`;
@@ -196,36 +231,18 @@ export class Bbox {
     }
 
     const overwrite = {version: '3', services: {}};
-    const services: {name: string, domainName: string, ip: string}[] = [];
-    const moduleNames = [];
-    for (const module of modules) {
-      if (!module.availableRuntimes.includes(Runtime.DockerCompose)) {
-        continue;
-      }
 
-      moduleNames.push(module.name);
-      for (const service of module.services) {
-        if (!service.port) {
-          continue;
-        }
-        services.push({name: service.name, domainName: `${service.name}.${this.projectOpts.domain}`, ip: '172.17.0.1'});
-      }
-    }
+    const dockerComposeModules = modules.filter((module) => module.availableRuntimes.includes(Runtime.DockerCompose));
 
-    const extra_hosts = services.map((service) => {
+    const extra_hosts = proxyServices.map((service) => {
       return `${service.domainName}:${service.ip}`;
     });
-    for (const moduleName of moduleNames) {
-      overwrite.services[moduleName] = {extra_hosts};
+    for (const module of dockerComposeModules) {
+      overwrite.services[module.name] = {extra_hosts};
     }
 
     const yaml = YAML.stringify(overwrite);
     fs.writeFileSync(this.projectOpts.dockerComposeOverridePath, yaml);
-  }
-
-  @commandMethod()
-  async proxyStart(params: ProxyBuildParams) {
-
   }
 
   @commandMethod()
@@ -240,7 +257,7 @@ export class Bbox {
     const module = modules[0];
 
     try {
-      await this.runner.run(module, params.runnable, {});
+      await this.runner.run(module, params.runnable, this.ctx());
     } catch (e) {
       console.error(e); // XXX
       throw e;
@@ -251,18 +268,18 @@ export class Bbox {
   async build(params: ServiceCommandParams) {
     const module = await this.getModule(params.services[0]);
 
-    await this.runBuild(module, {});
+    await this.runBuild(module, this.ctx());
   }
 
   @commandMethod()
   async start(params: ServiceCommandParams) {
     const {module, service} = await this.getService(params.services[0]);
 
-    const ctx = {};
-    await this.runBuildIfNeeded(module, ctx);
-    await this.runMigrationsIfNeeded(module, ctx);
+    const ctx = this.ctx();
 
-    await this.runStart(module, params.services[0], ctx);
+    await this.runStartDependenciesIfNeeded(module, service, ctx);
+
+    await this.runStart(module, service, ctx);
 
     await this.setProxyForwardForServiceIfNeeded(module, service);
   }
@@ -270,7 +287,7 @@ export class Bbox {
   @commandMethod()
   async stop(params: ServiceCommandParams) {
     const {service, module} = await this.getService(params.services[0]);
-    await this.processManager.stop(module, service);
+    await this.processManager.stop(module, service, this.ctx());
 
     await this.unsetProxyForwardForServiceIfNeeded(module, service);
   }
@@ -278,15 +295,15 @@ export class Bbox {
   @commandMethod()
   async migrate(params: ServiceCommandParams) {
     const module = await this.getModule(params.services[0]);
-    await this.runMigrate(module, {});
+    await this.runMigrate(module, this.ctx());
   }
 
   @commandMethod()
   async list(params: ListCommandParams) {
     const modules = await this.getAllModules();
     for (const module of modules) {
-      for (const app of module.services) {
-        console.log(`${app.name} [${module.name}] built: ${module.state.built}, pending migrations: ${this.getNotAppliedMigrations(module).join(', ')}, runtimes: ${module.availableRuntimes}`); // XXX
+      for (const service of module.services) {
+        console.log(`${service.name} [${module.name}]: ${service.process.status}, built: ${module.state.built}, pending migrations: ${this.getNotAppliedMigrations(module).join(', ')}, runtimes: ${module.availableRuntimes}`); // XXX
       }
     }
   }
@@ -295,16 +312,28 @@ export class Bbox {
     await this.processManager.onShutdown();
   }
 
-  private async runStart(module: Module, appName: string, ctx: Ctx) {
-    const app = module.services.find(app => app.name === appName);
+  private ctx(): Ctx {
+    return {
+      projectOpts: this.projectOpts
+    }
+  }
 
+  private async runStart(module: Module, service: Service, ctx: Ctx) {
     await this.runBuildIfNeeded(module, ctx);
     await this.runMigrationsIfNeeded(module, ctx);
+    await this.processManager.start(module, service, ctx);
+  }
 
-    if (!app) {
-      throw new Error(`App ${appName} not found`);
+  async runStartDependenciesIfNeeded(module: Module, service: Service, ctx: Ctx) {
+    if (!service.dependencies) {
+      return;
     }
-    await this.processManager.start(module, app);
+
+    for (const serviceDependencyName of service.dependencies) {
+      const {module, service} = await this.getService(serviceDependencyName);
+      await this.runStartDependenciesIfNeeded(module, service, ctx);
+      await this.runStart(module, service, ctx);
+    }
   }
 
   private async runRestartApp(module: Module, appName: string, ctx: Ctx) {
@@ -312,7 +341,7 @@ export class Bbox {
     if (!app) {
       throw new Error(`App ${appName} not found`);
     }
-    await this.processManager.restart(module, app);
+    await this.processManager.restart(module, app, ctx);
   }
 
   private async runBuild(module: Module, ctx: Ctx) {
@@ -415,6 +444,25 @@ export class Bbox {
     throw new Error(`Service "${serviceName}" not found.`);
   }
 
+  private async reloadServiceProcesses(modules: Module[]) {
+    const list = await this.processManager.getProcessList();
+
+    await this.eachService(modules, (service) => {
+      const proc = list.processes.find((process) => process.name === service.name);
+      if (proc) {
+        service.process.status = proc.status === 'online' ? ServiceProcessStatus.Online : ServiceProcessStatus.Unknown;
+      }
+    });
+  }
+
+  private async eachService(modules: Module[], callback: (service: Service) => Promise<void> | void) {
+    for (const module of modules) {
+      for (const service of module.services) {
+        await callback(service);
+      }
+    }
+  }
+
   private async getAllModules() {
     const modules = await this.fileManager.discoverModules(this.opts.rootPath);
     // Proxy module
@@ -426,21 +474,28 @@ export class Bbox {
       state: {built: true, ranMigrations: []},
       migrations: {},
       services: [{
-        name: 'proxy-http',
-        port: 80,
+        name: 'proxy',
+        subServices: {
+          http: {
+            name: 'http',
+            port: 80
+          },
+          https: {
+            name: 'https',
+            port: 443
+          }
+        },
         start: 'node proxy-server.js',
-        env: {
-          configFilePath: this.projectOpts.proxyConfigPath
-        }
-      }, {
-        name: 'proxy-https',
-        port: 443,
-        start: 'node proxy-server.js',
+        process: {
+          status: ServiceProcessStatus.Unknown
+        },
         env: {
           configFilePath: this.projectOpts.proxyConfigPath
         }
       }]
     });
+
+    await this.reloadServiceProcesses(modules);
 
     return modules;
   }
@@ -455,22 +510,21 @@ export class Bbox {
 }
 
 export class FileManager {
-  discoverRootPath(path: string): string {
+  discoverRootPath(currentPath: string): string {
     let rootPath = undefined;
-    let currentPath = path;
-    do {
-      if (fs.existsSync(`${currentPath}/bbox.project.js`)) {
+    while (true) {
+      if (fs.existsSync(`${currentPath}/bbox.config.js`)) {
         rootPath = currentPath;
       }
-      const newPath = dirname(currentPath);
-      if (newPath === currentPath) {
+      const parentPath = nodePath.dirname(currentPath);
+      if (parentPath === currentPath) {
         break;
       }
-      currentPath = newPath;
-    } while (!rootPath);
+      currentPath = parentPath;
+    }
 
     if (!rootPath) {
-      throw new Error('Could not find bbox.project.js');
+      throw new Error('Could not find root bbox.config.js');
     }
 
     return rootPath;
@@ -478,17 +532,19 @@ export class FileManager {
 
   async discoverModules(path: string): Promise<Module[]> {
     const paths = globby.sync([
+      'bbox.config.js',
       '*/bbox.config.js'
     ], {
       cwd: path,
       absolute: true,
-      gitignore: true
+      gitignore: true,
+      // TODO suppressErrors does not work and still getting EACCESS errors
+      suppressErrors: true // to suppress e.g. EACCES: permission denied, scandir
     });
-
     const modules: Module[] = [];
     for (const moduleFilePath of paths) {
       try {
-        const absolutePath = dirname(moduleFilePath);
+        const absolutePath = nodePath.dirname(moduleFilePath);
         const moduleFile: ModuleFile = require(moduleFilePath);
         const stateFilePath = `${absolutePath}/bbox.state.json`;
         if (!fs.existsSync(stateFilePath)) {
@@ -508,6 +564,7 @@ export class FileManager {
         const module: Module = Object.assign({
           absolutePath,
           state,
+          services: [],
           availableRuntimes: [],
           runtime: undefined
         }, moduleFile)
@@ -521,6 +578,10 @@ export class FileManager {
             if (service.start && !module.availableRuntimes.includes(Runtime.Local)) {
               module.availableRuntimes.push(Runtime.Local);
             }
+
+            service.process = {
+              status: ServiceProcessStatus.Unknown
+            };
           }
         }
 
@@ -550,16 +611,17 @@ export class FileManager {
       }
     }
 
+    //console.log(JSON.stringify(modules, null, 2)); // XXX
+
     for (const module of modules) {
       if (module.availableRuntimes.length === 0) {
-        throw new Error(`Module ${module} has no available runtime`);
+        //throw new Error(`Module ${module.name} has no available runtime`);
       }
       if (!module.runtime) {
         module.runtime = module.availableRuntimes[0];
       }
     }
 
-    console.log(JSON.stringify(modules, null, 2)); // XXX
 
     //const pluginServices = await this.runPlugins('discoverServices');
 
@@ -675,10 +737,24 @@ const pm2Stop = promisify(pm2.stop).bind(pm2);
 const pm2List = promisify(pm2.list).bind(pm2);
 const pm2SendDataToProcessId = promisify(pm2.sendDataToProcessId).bind(pm2);
 
+export class Process {
+  name: string;
+  status: string;
+}
+
+export class ProcessList {
+  processes: Process[];
+}
+
 export class ProcessManager {
   private pm2;
 
-  async start(module: Module, service: Service) {
+  async start(module: Module, service: Service, ctx: Ctx) {
+    if (module.availableRuntimes.length === 0) {
+      console.log(`No available runtime for service: ${service.name}`);
+      return;
+    }
+
     await this.pm2Connect();
     if (module.runtime === Runtime.DockerCompose) {
       const args = [];
@@ -691,19 +767,37 @@ export class ProcessManager {
         args.push(`-p ${service.port}:${service.containerPort ?? service.port}`);
       }
 
-      const runCmd = `run --rm ${args.join(' ')} ${module.name}`;
+      if (service.subServices) {
+        for (const subServiceKey of Object.keys(service.subServices)) {
+          const subService = service.subServices[subServiceKey];
+          args.push(`-p ${subService.port}:${subService.containerPort ?? subService.port}`);
+        }
+      }
+
+      let dockerFiles = `-f ${ctx.projectOpts.rootPath}/docker-compose.yml`;
+      if (ctx.projectOpts.dockerComposeOverridePath) {
+        dockerFiles += ` -f ${ctx.projectOpts.dockerComposeOverridePath}`;
+      }
+      const overridePath = `${ctx.projectOpts.rootPath}/docker-compose.override.yml`;
+      if (fs.existsSync(overridePath)) {
+        dockerFiles += ` -f ${overridePath}`;
+      }
+
+      const runCmd = `${dockerFiles} run --rm ${args.join(' ')} ${module.name}`;
       console.log(runCmd); // XXX
       if (service.start) {
         await pm2Start({
           name: service.name,
           script: 'docker-compose',
-          args: `${runCmd} ${service.start}`
+          args: `${runCmd} ${service.start}`,
+          autorestart: false
         });
       } else {
         await pm2Start({
           name: service.name,
           script: 'docker-compose',
-          args: runCmd
+          args: runCmd,
+          autorestart: false
         });
       }
       return;
@@ -713,7 +807,8 @@ export class ProcessManager {
       name: service.name,
       cwd: module.absolutePath,
       script: service.start,
-      env: service.env
+      env: service.env,
+      autorestart: false
     });
   }
 
@@ -737,18 +832,39 @@ export class ProcessManager {
     return this.pm2Disconnect()
   }
 
-  async restart(module: Module, service: Service) {
+  async restart(module: Module, service: Service, ctx: Ctx) {
     await this.pm2Connect();
     await pm2Restart(service.start);
   }
 
-  async stop(module: Module, service: Service) {
+  async stop(module: Module, service: Service, ctx: Ctx) {
     await this.pm2Connect();
     try {
       await pm2Stop(service.name);
     } catch (e) {
       throw new Error(`PM2 error: ${e.message}`);
     }
+  }
+
+  async getProcessList(): Promise<ProcessList> {
+    await this.pm2Connect();
+    const list = await pm2List();
+    const processes: Process[] = [];
+
+    for (const proc of list) {
+      processes.push(this.pm2ProcessToBboxProcess(proc));
+    }
+
+    return {
+      processes
+    }
+  }
+
+  private pm2ProcessToBboxProcess(proc: ProcessDescription): Process {
+    return {
+      name: proc.name,
+      status: proc.pm2_env.status
+    };
   }
 
   private async pm2Connect() {
