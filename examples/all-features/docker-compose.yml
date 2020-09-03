@@ -1,14 +1,6 @@
 version: '3'
 services:
-  node:
-    build: ./node
-    image: bbox-node
-    working_dir: /bbox
-    volumes:
-      - ./node:/bbox
-  container-info:
-    image: matuszeman/container-info
-  container-info2:
-    image: matuszeman/container-info
-  mongo:
-    image: mongo:3.6
+    container-info: {extra_hosts: ['container-info.local.app.garden:172.17.0.1', 'container-info2.local.app.garden:172.17.0.1', 'mongo.local.app.garden:172.17.0.1', 'http.proxy.local.app.garden:172.17.0.1', 'https.proxy.local.app.garden:172.17.0.1'], volumes: [], image: matuszeman/container-info}
+    container-info2: {extra_hosts: ['container-info.local.app.garden:172.17.0.1', 'container-info2.local.app.garden:172.17.0.1', 'mongo.local.app.garden:172.17.0.1', 'http.proxy.local.app.garden:172.17.0.1', 'https.proxy.local.app.garden:172.17.0.1'], volumes: [], image: matuszeman/container-info}
+    mongo: {extra_hosts: ['container-info.local.app.garden:172.17.0.1', 'container-info2.local.app.garden:172.17.0.1', 'mongo.local.app.garden:172.17.0.1', 'http.proxy.local.app.garden:172.17.0.1', 'https.proxy.local.app.garden:172.17.0.1'], volumes: ['./mongo/.bbox/state/volumes/data:/data/db'], image: 'mongo:3.6'}
+    node: {extra_hosts: ['container-info.local.app.garden:172.17.0.1', 'container-info2.local.app.garden:172.17.0.1', 'mongo.local.app.garden:172.17.0.1', 'http.proxy.local.app.garden:172.17.0.1', 'https.proxy.local.app.garden:172.17.0.1'], volumes: ['./node:/bbox'], image: bbox-node, build: {context: ./node, dockerfile: Dockerfile}, working_dir: /bbox}
