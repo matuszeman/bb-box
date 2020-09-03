@@ -1,1 +1,0 @@
-declare let counter: number;
