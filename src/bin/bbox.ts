@@ -86,6 +86,9 @@ function runServiceCommand(bbox: Bbox, ctx: Ctx, handler) {
   createServiceCommand(program, 'migrate')
     .action(runServiceCommand(bbox, ctx, bbox.migrate));
 
+  createServiceCommand(program, 'value')
+    .action(runServiceCommand(bbox, ctx, bbox.value));
+
   program.command('list')
     .action(runCommand(bbox, ctx, bbox.list));
 

@@ -5,7 +5,10 @@ module.exports = {
   dockerFile: 'Dockerfile',
   services: {
     'js-app': {
-      start: 'node js-app.js'
+      start: 'node js-app.js',
+      valueProviders: {
+        version: 'node get-version.js'
+      }
     },
     'ts-app': {
       start: 'npx ts-node ts-app.ts'

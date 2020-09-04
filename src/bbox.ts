@@ -55,7 +55,9 @@ export interface Service {
   healthCheck?: {
     // https://www.npmjs.com/package/wait-on#nodejs-api-usage
     waitOn: WaitOnOptions
-  }
+  },
+  valueProviders?: {[key: string]: Runnable}
+  values?: {[key: string]: any}
 }
 
 export enum Command {
@@ -341,6 +343,24 @@ export class Bbox {
   async migrate(params: ServiceCommandParams, ctx: Ctx) {
     const module = await this.getModule(params.services[0], ctx);
     await this.runMigrate(module, ctx);
+  }
+
+  @commandMethod()
+  async value(params: ServiceCommandParams, ctx: Ctx) {
+    const [serviceName, providerName] = params.services[0].split('.');
+    const {module, service} = await this.getService(serviceName, ctx);
+
+    if (service.values && service.values[providerName]) {
+      console.log(service.values[providerName]);
+      return;
+    }
+
+    if (!service.valueProviders || !service.valueProviders[providerName]) {
+      throw new Error(`Value provider ${providerName} not found`);
+    }
+
+    await this.runBuildIfNeeded(module, ctx);
+    await this.runner.run(module, service.valueProviders[providerName], ctx);
   }
 
   @commandMethod()
@@ -715,7 +735,7 @@ export class Runner {
     //   env.BOX_USER = userGroup;
     // }
     const cmdString = `${cmd} ${args.join(' ')}`;
-    console.log(cmdString); // XXX
+    //console.log(cmdString); // XXX
     const ret = spawnSync(cmd, args, {
       env,
       shell: true, //throws error without this
@@ -815,7 +835,7 @@ export class ProcessManager {
       }
 
       const runCmd = `${dockerComposeArgs} run --rm ${cmdArgs.join(' ')} ${module.name}`;
-      console.log(`docker-compose ${runCmd}`); // XXX
+      //console.log(`docker-compose ${runCmd}`); // XXX
       if (service.start) {
         await pm2Start({
           name: service.name,

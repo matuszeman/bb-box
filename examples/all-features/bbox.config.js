@@ -1,8 +1,13 @@
 module.exports = {
   name: 'all-features',
   services: {
+    project: {
+      values: {
+        email: 'user@example.com'
+      }
+    },
     all: {
-      dependencies: ['proxy-http', 'container-info']
+      dependencies: ['container-info', 'node']
     }
   }
 };
