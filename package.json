@@ -33,6 +33,7 @@
     "redbird": "^0.10.0",
     "reflect-metadata": "^0.1.13",
     "shelljs": "^0.8.4",
+    "wait-on": "^5.2.0",
     "yamljs": "^0.3.0"
   },
   "peerDependencies": {
@@ -58,6 +59,7 @@
     "@types/node": "^14.0.23",
     "@types/reflect-metadata": "^0.1.0",
     "@types/shelljs": "^0.8.8",
+    "@types/wait-on": "^4.0.0",
     "@types/yamljs": "^0.2.31",
     "source-map-support": "^0.5.19",
     "ts-node": "^8.10.2",

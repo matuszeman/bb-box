@@ -8,6 +8,13 @@ module.exports = {
   },
   services: [{
     name: 'mongo',
-    port: 27017
+    port: 27017,
+    healthCheck: {
+      waitOn: {
+        resources: [
+          'tcp:27017'
+        ]
+      }
+    }
   }]
 }
