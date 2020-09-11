@@ -1,9 +1,9 @@
 module.exports = {
   name: 'mongo',
-  dockerImage: 'mongo:3.6',
-  volumes: {
-    data: {
-      containerPath: '/data/db'
+  docker: {
+    image: 'mongo:3.6',
+    volumes: {
+      data: '/data/db'
     }
   },
   services: [{

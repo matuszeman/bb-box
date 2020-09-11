@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 const process = require("process");
+console.log('Process env vars:', process.env); // XXX
 process.on('message', function (message, sendHandle) {
     console.log(message); // XXX
     console.log('FFFFFFFFFFFFFFFFFFFF'); // XXX

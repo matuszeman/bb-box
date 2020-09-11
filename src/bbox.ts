@@ -1,26 +1,15 @@
 import 'source-map-support/register';
 import 'reflect-metadata';
 
-import * as globby from 'globby';
-import * as shell from 'shelljs';
-import * as process from 'process';
 import { difference } from 'lodash';
-import * as nodePath from 'path';
 import * as fs from 'fs';
-import * as pm2 from 'pm2';
-import {promisify} from 'util';
 import * as jf from 'joiful';
 import {PrettyJoi} from './pretty-joi';
-import * as dockerCompose from 'docker-compose';
-import {parse} from 'yamljs';
-import {spawnSync} from 'child_process'
-import {ls} from 'shelljs';
-//import {ProxyConfig} from './proxy-server';
 import * as YAML from 'yamljs'
 import {ProxyConfig} from './proxy-server';
-import {ProcessDescription} from 'pm2';
-import * as waitOn from 'wait-on';
 import {WaitOnOptions} from 'wait-on';
+import {ProcessList, ProcessManager} from './process-manager';
+import {FileManager} from './file-manager';
 
 export interface RunnableFnOpts {
   module: Module;
@@ -30,6 +19,7 @@ export interface RunnableFnOpts {
 //type Runnable = string | string[] | RunnableFn | RunnableFn[];
 type Runnable = string | string[];
 type Dependency = string;
+export type EnvValues = {[key: string]: any};
 
 enum ServiceProcessStatus {
   Unknown = 'Unknown',
@@ -50,13 +40,14 @@ export interface Service {
   subServices?: {
     [key: string]: SubService
   }
-  env?: {[key: string]: any},
+  env: EnvValues,
+  provideEnvValues?: {[key: string]: string},
   dependencies?: Dependency[],
   healthCheck?: {
     // https://www.npmjs.com/package/wait-on#nodejs-api-usage
     waitOn: WaitOnOptions
   },
-  valueProviders?: {[key: string]: Runnable}
+  valueProviders?: {[key: string]: string}
   values?: {[key: string]: any}
 }
 
@@ -76,17 +67,17 @@ export interface ModuleState {
 
 export interface ModuleFile {
   name: string;
-  dockerImage?: string;
-  dockerFile?: string;
+  docker?: {
+    image?: string;
+    file?: string;
+    volumes?: {
+      [key: string]: string
+    }
+  },
   services: {[key: string]: Service};
   build?: Runnable;
   migrations?: {[key: string]: Runnable};
-  env?: {[key: string]: any},
-  volumes?: {
-    [key: string]: {
-      containerPath: string
-    }
-  }
+  env?: {[key: string]: any}
 }
 
 export interface Module extends ModuleFile {
@@ -168,7 +159,6 @@ export class ProjectOpts {
 export class Bbox {
   constructor(
     private fileManager: FileManager,
-    private runner: Runner,
     private processManager: ProcessManager
   ) {
   }
@@ -245,16 +235,16 @@ export class Bbox {
 
       const dockerService: any = {};
 
-      if (module.dockerImage) {
-        dockerService.image = module.dockerImage;
+      if (module.docker?.image) {
+        dockerService.image = module.docker.image;
       }
 
-      if (module.dockerFile) {
+      if (module.docker?.file) {
         // TODO use project name instead of "bbox"
         dockerService.image = `bbox-${module.name}`;
         dockerService.build = {
           context: `./${moduleFolderName}`,
-          dockerfile: module.dockerFile
+          dockerfile: module.docker.file
         };
 
         dockerService.working_dir = '/bbox';
@@ -262,21 +252,21 @@ export class Bbox {
         dockerService.volumes = [`${moduleFolderPath}:/bbox`];
       }
 
-      if (module.volumes) {
+      if (module.docker?.volumes) {
         dockerService.volumes = dockerService.volumes ?? [];
-        for (const volumeName of Object.keys(module.volumes)) {
-          const volumeSpec = module.volumes[volumeName];
-          dockerService.volumes.push(`${moduleFolderPath}/.bbox/state/volumes/${volumeName}:${volumeSpec.containerPath}`);
+        for (const volumeName in module.docker.volumes) {
+          const containerPath = module.docker.volumes[volumeName];
+          dockerService.volumes.push(`${moduleFolderPath}/.bbox/state/volumes/${volumeName}:${containerPath}`);
         }
       }
 
-      if (module.env) {
-        dockerService.environment = module.env;
-        for (const envName of Object.keys(module.env)) {
-          const envValue = module.env[envName];
-          dockerService.environment[envName] = envValue;
-        }
-      }
+      // if (module.env) {
+      //   dockerService.environment = module.env;
+      //   for (const envName of Object.keys(module.env)) {
+      //     const envValue = module.env[envName];
+      //     dockerService.environment[envName] = envValue;
+      //   }
+      // }
 
       dockerService.extra_hosts = extra_hosts;
 
@@ -299,7 +289,7 @@ export class Bbox {
     const module = modules[0];
 
     try {
-      await this.runner.run(module, params.runnable, ctx);
+      await this.runInteractive(module, params.runnable, ctx);
     } catch (e) {
       console.error(e); // XXX
       throw e;
@@ -347,12 +337,16 @@ export class Bbox {
 
   @commandMethod()
   async value(params: ServiceCommandParams, ctx: Ctx) {
-    const [serviceName, providerName] = params.services[0].split('.');
+    const ret = await this.provideValue(params.services[0], ctx);
+    console.log(ret); // XXX
+  }
+
+  private async provideValue(valueName, ctx) {
+    const [serviceName, providerName] = valueName.split('.');
     const {module, service} = await this.getService(serviceName, ctx);
 
     if (service.values && service.values[providerName]) {
-      console.log(service.values[providerName]);
-      return;
+      return service.values[providerName];
     }
 
     if (!service.valueProviders || !service.valueProviders[providerName]) {
@@ -360,7 +354,7 @@ export class Bbox {
     }
 
     await this.runBuildIfNeeded(module, ctx);
-    await this.runner.run(module, service.valueProviders[providerName], ctx);
+    return await this.processManager.run(module, service.valueProviders[providerName], service.env, ctx);
   }
 
   @commandMethod()
@@ -379,6 +373,11 @@ export class Bbox {
   }
 
   private async runStart(module: Module, service: Service, ctx: Ctx) {
+    if (service.provideEnvValues) {
+      const envValues = await this.provideValues(service.provideEnvValues, ctx);
+      Object.assign(service.env, envValues);
+    }
+
     await this.runBuildIfNeeded(module, ctx);
     await this.runMigrationsIfNeeded(module, ctx);
     await this.processManager.startIfNeeded(module, service, ctx);
@@ -396,12 +395,20 @@ export class Bbox {
     }
   }
 
+  private async provideValues(values: {[key: string]: string}, ctx) {
+    const ret = {};
+    for (const envName in values) {
+      ret[envName] = await this.provideValue(values[envName], ctx);
+    }
+    return ret;
+  }
+
   private async runBuild(module: Module, ctx: Ctx) {
     if (!module.build) {
       throw new Error('Module has not build action specified');
     }
 
-    await this.runner.run(module, module.build, ctx);
+    await this.runInteractive(module, module.build, ctx);
 
     module.state.built = true;
     this.fileManager.saveState(module);
@@ -421,7 +428,7 @@ export class Bbox {
     for (const migId of diff) {
       try {
         console.log(`> Migrating ${migId}`); // XXX
-        await this.runner.run(module, module.migrations[migId], ctx);
+        await this.runInteractive(module, module.migrations[migId], ctx);
 
         module.state.ranMigrations.push(migId);
         this.fileManager.saveState(module);
@@ -434,6 +441,17 @@ export class Bbox {
     console.log(`> All new migrations applied.`); // XXX
 
     return {};
+  }
+
+  private async runInteractive(module: Module, runnable: Runnable, ctx: Ctx) {
+    if (Array.isArray(runnable)) {
+      for (const cmd of runnable) {
+        await this.processManager.runInteractive(module, cmd, {}, ctx);
+      }
+      return;
+    }
+
+    await this.processManager.runInteractive(module, runnable, {}, ctx);
   }
 
   private async runBuildIfNeeded(module: Module, ctx: Ctx) {
@@ -538,418 +556,3 @@ export class Bbox {
   }
 }
 
-export class FileManager {
-  discoverRootPath(currentPath: string): string {
-    let rootPath = undefined;
-    while (true) {
-      if (fs.existsSync(`${currentPath}/bbox.config.js`)) {
-        rootPath = currentPath;
-      }
-      const parentPath = nodePath.dirname(currentPath);
-      if (parentPath === currentPath) {
-        break;
-      }
-      currentPath = parentPath;
-    }
-
-    if (!rootPath) {
-      throw new Error('Could not find root bbox.config.js');
-    }
-
-    return rootPath;
-  }
-
-  async discoverModules(path: string): Promise<Module[]> {
-    const paths = globby.sync([
-      'bbox.config.js',
-      '*/bbox.config.js',
-    ], {
-      ignore: ['**/.bbox'],
-      cwd: path,
-      absolute: true,
-      gitignore: true,
-      // TODO suppressErrors does not work and still getting EACCESS errors
-      suppressErrors: true // to suppress e.g. EACCES: permission denied, scandir
-    });
-    const modules: Module[] = [];
-    for (const moduleFilePath of paths) {
-      try {
-        const absolutePath = nodePath.dirname(moduleFilePath);
-        const moduleFile: ModuleFile = require(moduleFilePath);
-
-        const stateFilePath = `${absolutePath}/.bbox/state.json`;
-        if (!fs.existsSync(stateFilePath)) {
-          fs.writeFileSync(stateFilePath, '{}');
-        }
-
-        const statePath = `${absolutePath}/.bbox/state`;
-        if (!fs.existsSync(statePath)) {
-          fs.mkdirSync(statePath, {recursive: true});
-        }
-        const moduleStateFile: Partial<ModuleState> = require(stateFilePath);
-        // TODO types
-        const state: ModuleState = Object.assign<ModuleState, Partial<ModuleState>>({
-          ranMigrations: [],
-          built: false
-        }, moduleStateFile);
-        // moduleFile.services = moduleFile.services.map<Service>((serviceFile) => {
-        //   return Object.assign({
-        //     env: {}
-        //   }, serviceFile)
-        // });
-        const module: Module = Object.assign({
-          absolutePath,
-          state,
-          services: [],
-          availableRuntimes: [],
-          runtime: undefined
-        }, moduleFile)
-
-        if (module.dockerImage || module.dockerFile) {
-          module.availableRuntimes.push(Runtime.Docker);
-        }
-
-        // Services
-        if (module.services) {
-          for (const serviceName of Object.keys(module.services)) {
-            const service = module.services[serviceName];
-            if (!service.name) {
-              service.name = serviceName;
-            }
-            if (service.start && !module.availableRuntimes.includes(Runtime.Local)) {
-              module.availableRuntimes.push(Runtime.Local);
-            }
-          }
-        }
-
-        modules.push(module);
-      } catch (e) {
-        throw new Error(`Module file error. Module disabled. ${moduleFilePath}: ${e}\n${e.stack}`);
-      }
-    }
-
-    // @DockerCompose
-    // try {
-    //   const dockerComposeServices = await dockerCompose.config({cwd: path});
-    //   const dockerComposeFile = parse(dockerComposeServices.out);
-    //   const services = Object.keys(dockerComposeFile.services);
-    //   for (const serviceName of services) {
-    //     const foundAppModule = modules.find((module) => module.name === serviceName);
-    //     if (!foundAppModule) {
-    //       throw new Error(`Module not found: ${serviceName}`)
-    //     }
-    //     foundAppModule.availableRuntimes.push(Runtime.DockerCompose);
-    //   }
-    // } catch (e) {
-    //   if (e.err && e.err.includes('Can\'t find a suitable configuration file')) {
-    //     console.log('No docker-compose configuration found'); // XXX
-    //   } else {
-    //     console.log('DockerComposer error', e); // XXX
-    //   }
-    // }
-
-    //console.log(JSON.stringify(modules, null, 2)); // XXX
-
-    for (const module of modules) {
-      if (module.availableRuntimes.length === 0) {
-        //throw new Error(`Module ${module.name} has no available runtime`);
-      }
-      if (!module.runtime) {
-        module.runtime = module.availableRuntimes[0];
-      }
-    }
-
-
-    //const pluginServices = await this.runPlugins('discoverServices');
-
-    //TODO do some magic to merge/select values from discovered plugin services
-    //defaultsDeep(services, pluginServices);
-
-    return modules;
-  }
-
-  saveState(module: Module) {
-    fs.writeFileSync(`${module.absolutePath}/.bbox/state.json`, JSON.stringify(module.state, null, 2));
-  }
-}
-
-export class Runner {
-  async run(module: Module, runnable: Runnable, ctx: Ctx) {
-    if (Array.isArray(runnable)) {
-      for (const one of runnable) {
-        await this.run(module, one, ctx);
-      }
-      return;
-    }
-
-    // Do we want to support inline functions?
-    // if (typeof runnable === 'function') {
-    //   await runnable({
-    //     module,
-    //     ctx
-    //   });
-    //   return;
-    // }
-
-    if (typeof runnable === 'string') {
-      if (module.runtime === Runtime.Docker) {
-        await this.runDocker(module, runnable, ctx);
-        return;
-      }
-
-      this.runShellCmd(module.absolutePath, runnable);
-      return;
-    }
-
-    throw new Error('Can not run ' + typeof runnable);
-  }
-
-  private async runDocker(module: Module, cmd: string, ctx: Ctx) {
-    const args = [];
-
-    // linux
-    // const hostIp = '172.17.0.1';
-    // args.push(`--add-host=xxx:${hostIp}`);
-
-    this.spawn('docker-compose', ['run', '--rm', '--use-aliases', ...args, module.name, cmd], {});
-  }
-
-  private runShellCmd(cwd: string, cmd: string) {
-    this.shell.pushd(cwd);
-    const opts = this.createExecOpts();
-    opts.silent = false;
-    console.log(`> Running: ${cmd}`); // XXX
-    const ret = this.shell.exec(cmd, opts);
-    if (ret.code !== 0) {
-      throw new Error(`shell error: ${ret.stderr}`);
-    }
-    this.shell.popd();
-  }
-
-  private spawn(cmd, args, opts) {
-    //merge current process env with spawn cmd
-    //const env = _.defaults({}, opts.env, process.env);
-    const env = process.env;
-    // const userGroup = this.getUserGroup();
-    // if (userGroup) {
-    //   env.BOX_USER = userGroup;
-    // }
-    const cmdString = `${cmd} ${args.join(' ')}`;
-    //console.log(cmdString); // XXX
-    const ret = spawnSync(cmd, args, {
-      env,
-      shell: true, //throws error without this
-      stdio: 'inherit'
-    });
-    if (ret.status !== 0) {
-      console.error(ret); //XXX
-      throw new Error('spawn error');
-    }
-  }
-
-  private createExecOpts() {
-    const env = process.env;
-    const opts = {
-      //async: true //TODO
-      silent: false,
-      windowsHide: true, //do not open terminal window on Windows
-      env
-    };
-
-    return opts;
-  }
-
-  get shell() {
-    shell.config.reset();
-    shell.config.silent = true;
-    return shell;
-  }
-}
-
-const pm2Connect = promisify(pm2.connect).bind(pm2);
-const pm2Disconnect = promisify(pm2.disconnect).bind(pm2);
-const pm2Start = promisify(pm2.start).bind(pm2);
-const pm2Restart = promisify(pm2.restart).bind(pm2);
-const pm2Stop = promisify(pm2.stop).bind(pm2);
-const pm2List = promisify(pm2.list).bind(pm2);
-const pm2SendDataToProcessId = promisify(pm2.sendDataToProcessId).bind(pm2);
-
-export enum ProcessStatus {
-  Unknown = 'Unknown',
-  Starting = 'Starting',
-  Running = 'Running',
-  Stopping = 'Stopping',
-  NotRunning = 'NotRunning'
-}
-
-export class Process {
-  serviceName: string;
-  status: ProcessStatus;
-}
-
-export class ProcessList {
-  processes: Process[];
-}
-
-export class ProcessManager {
-  private pm2;
-
-  async startIfNeeded(module: Module, service: Service, ctx: Ctx) {
-    const process = await this.findServiceProcess(service, ctx);
-    if (process && process.status === ProcessStatus.Running) {
-      return;
-    }
-    await this.start(module, service, ctx);
-  }
-
-  async start(module: Module, service: Service, ctx: Ctx) {
-    if (module.availableRuntimes.length === 0) {
-      console.log(`No available runtime for service: ${service.name}`);
-      return;
-    }
-
-    await this.pm2Connect();
-    if (module.runtime === Runtime.Docker) {
-      const cmdArgs = [];
-
-      if (service.port) {
-        cmdArgs.push(`-p ${service.port}:${service.containerPort ?? service.port}`);
-      }
-
-      if (service.subServices) {
-        for (const subServiceKey of Object.keys(service.subServices)) {
-          const subService = service.subServices[subServiceKey];
-          cmdArgs.push(`-p ${subService.port}:${subService.containerPort ?? subService.port}`);
-        }
-      }
-
-      let dockerComposeArgs = `--project-directory ${ctx.projectOpts.rootPath}`;
-
-      dockerComposeArgs += ` -f ${ctx.projectOpts.dockerComposePath}`;
-      if (ctx.projectOpts.dockerComposePath) {
-        dockerComposeArgs += ` -f ${ctx.projectOpts.dockerComposePath}`;
-      }
-      const overridePath = `${ctx.projectOpts.rootPath}/docker-compose.override.yml`;
-      if (fs.existsSync(overridePath)) {
-        dockerComposeArgs += ` -f ${overridePath}`;
-      }
-
-      const runCmd = `${dockerComposeArgs} run --rm ${cmdArgs.join(' ')} ${module.name}`;
-      //console.log(`docker-compose ${runCmd}`); // XXX
-      if (service.start) {
-        await pm2Start({
-          name: service.name,
-          script: 'docker-compose',
-          args: `${runCmd} ${service.start}`,
-          autorestart: false
-        });
-      } else {
-        await pm2Start({
-          name: service.name,
-          script: 'docker-compose',
-          args: runCmd,
-          autorestart: false
-        });
-      }
-    } else {
-      await pm2Start({
-        name: service.name,
-        cwd: module.absolutePath,
-        script: service.start,
-        env: service.env,
-        autorestart: false
-      });
-    }
-
-    if (service.healthCheck && service.healthCheck.waitOn) {
-      console.log(`Waiting for the service health check: ${service.healthCheck.waitOn.resources.join(', ')}`); // XXX
-      await waitOn(service.healthCheck.waitOn);
-    }
-  }
-
-  async sendDataToService(module: Module, service: Service) {
-    await this.pm2Connect();
-    const processList = await pm2List();
-
-    const ret = await pm2SendDataToProcessId(0, {
-      id: 0,
-      type : 'message',
-      data : {
-        some : 'data',
-        hello : true
-      },
-      topic: 'some topic'
-    });
-    console.log(ret); // XXX
-  }
-
-  async onShutdown() {
-    return this.pm2Disconnect()
-  }
-
-  async stop(module: Module, service: Service, ctx: Ctx) {
-    await this.pm2Connect();
-    try {
-      await pm2Stop(service.name);
-    } catch (e) {
-      throw new Error(`PM2 error: ${e.message}`);
-    }
-  }
-
-  async getProcessList(ctx: Ctx): Promise<ProcessList> {
-    if (ctx.processList) {
-      return ctx.processList;
-    }
-
-    await this.pm2Connect();
-    const list = await pm2List();
-    const processes: Process[] = [];
-
-    for (const proc of list) {
-      processes.push(this.pm2ProcessToBboxProcess(proc));
-    }
-
-    const ret = {
-      processes
-    };
-
-    ctx.processList = ret;
-    return ret;
-  }
-
-  async findServiceProcess(service: Service, ctx: Ctx) {
-    const {processes} = await this.getProcessList(ctx);
-    return processes.find((process) => process.serviceName === service.name);
-  }
-
-  private pm2ProcessToBboxProcess(proc: ProcessDescription): Process {
-    const statusMap = {
-      online: ProcessStatus.Running,
-      stopping: ProcessStatus.Stopping,
-      stopped: ProcessStatus.NotRunning,
-      launching: ProcessStatus.Starting,
-      errored: ProcessStatus.NotRunning,
-      'one-launch-status': ProcessStatus.Unknown
-    }
-    return {
-      serviceName: proc.name,
-      status: statusMap[proc.pm2_env.status]
-    };
-  }
-
-  private async pm2Connect() {
-    if (!this.pm2) {
-      await pm2Connect();
-      this.pm2 = pm2;
-    }
-
-    return this.pm2;
-  }
-
-  private async pm2Disconnect() {
-    if (this.pm2) {
-      await pm2Disconnect();
-      this.pm2 = null;
-    }
-  }
-}

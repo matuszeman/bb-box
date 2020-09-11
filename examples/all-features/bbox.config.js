@@ -3,11 +3,14 @@ module.exports = {
   services: {
     project: {
       values: {
-        email: 'user@example.com'
+        email: 'user@example.com',
+      },
+      valueProviders: {
+        valueProvider: 'node value-provider.js'
       }
     },
     all: {
-      dependencies: ['container-info', 'node']
+      dependencies: ['container-info', 'ts-app']
     }
   }
 };

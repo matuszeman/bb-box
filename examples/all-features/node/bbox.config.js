@@ -1,8 +1,10 @@
 module.exports = {
   name: 'node',
-  runtime: 'Docker',
+  runtime: 'Local',
   build: 'npm i',
-  dockerFile: 'Dockerfile',
+  docker: {
+    file: 'Dockerfile'
+  },
   services: {
     'js-app': {
       start: 'node js-app.js',
@@ -11,7 +13,10 @@ module.exports = {
       }
     },
     'ts-app': {
-      start: 'npx ts-node ts-app.ts'
+      start: 'npx ts-node ts-app.ts',
+      provideEnvValues: {
+        XXXXXXXXXXXXXXXX: 'project.email'
+      }
     }
   },
   migrations: {

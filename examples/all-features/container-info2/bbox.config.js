@@ -1,6 +1,8 @@
 module.exports = {
   name: 'container-info2',
-  dockerImage: 'matuszeman/container-info',
+  docker: {
+    image: 'matuszeman/container-info',
+  },
   services: {
     'container-info2': {
       port: 3001,

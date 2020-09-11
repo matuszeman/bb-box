@@ -1,5 +1,7 @@
 import * as process from 'process';
 
+console.log('Process env vars:', process.env); // XXX
+
 process.on('message', function(message: any, sendHandle: any) {
   console.log(message); // XXX
   console.log('FFFFFFFFFFFFFFFFFFFF'); // XXX

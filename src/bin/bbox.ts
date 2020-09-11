@@ -1,10 +1,11 @@
 import {Command} from 'commander';
-import {Bbox, ServiceCommandParams, FileManager, ProcessManager, Runner, Ctx} from '../bbox';
+import {Bbox, ServiceCommandParams, Ctx} from '../bbox';
 import * as process from 'process';
+import { ProcessManager } from '../process-manager';
+import {FileManager} from '../file-manager';
 
 async function createBox() {
   const fileManager = new FileManager();
-  const runner = new Runner();
   const processManager = new ProcessManager();
   const rootPath = fileManager.discoverRootPath(process.cwd());
   const ctx: Ctx = {
@@ -19,7 +20,7 @@ async function createBox() {
       domain: 'local.app.garden'
     }
   }
-  const bbox = new Bbox(fileManager, runner, processManager);
+  const bbox = new Bbox(fileManager, processManager);
   await bbox.init(ctx);
   return {
     bbox,
