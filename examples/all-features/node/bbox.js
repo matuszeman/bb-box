@@ -22,10 +22,7 @@ module.exports = {
       }
     },
     'ts-app': {
-      start: 'npx ts-node ts-app.ts',
-      provideEnvValues: {
-        XXXXXXXXXXXXXXXX: '${project.email}'
-      }
+      start: 'npx ts-node ts-app.ts'
     }
   },
   // migrations: {
