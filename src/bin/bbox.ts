@@ -13,7 +13,8 @@ async function createBox() {
     projectOpts: {
       rootPath,
       dockerComposePath: `${rootPath}/docker-compose.yml`,
-    }
+    },
+    stagedStates: []
   }
   const bbox = new Bbox(fileManager, processManager);
   await bbox.init(ctx);
@@ -28,7 +29,7 @@ function createServiceCommand(program: Command, cmd) {
     .option('--deps', 'TODO run with dependencies')
 }
 
-function runCommand(bbox: Bbox, ctx: Ctx, handler) {
+function runCommandOpts(bbox: Bbox, ctx: Ctx, handler) {
   return async (command: Command) => {
     try {
       await handler.bind(bbox)(command.opts(), ctx);
@@ -48,6 +49,19 @@ function runServiceCommand(bbox: Bbox, ctx: Ctx, handler) {
         ...command.opts()
       };
       await handler.bind(bbox)(commandParams, ctx);
+    } catch(e) {
+      console.error(e); //XXX
+    }
+
+    await bbox.shutdown();
+  };
+}
+
+function runCommand(bbox: Bbox, ctx: Ctx, handler, paramsHandler) {
+  return async function () {
+    try {
+      const params = paramsHandler(...arguments);
+      await handler.bind(bbox)(params, ctx);
     } catch(e) {
       console.error(e); //XXX
     }
@@ -86,7 +100,7 @@ function runServiceCommand(bbox: Bbox, ctx: Ctx, handler) {
     .action(runServiceCommand(bbox, ctx, bbox.value));
 
   program.command('status').aliases(['list', 'ls'])
-    .action(runCommand(bbox, ctx, bbox.list));
+    .action(runCommandOpts(bbox, ctx, bbox.list));
 
   createServiceCommand(program, 'test')
     .action(runServiceCommand(bbox, ctx, bbox.test));
@@ -96,14 +110,21 @@ function runServiceCommand(bbox: Bbox, ctx: Ctx, handler) {
 
   program.command('configure')
     .alias('c')
-    .action(runCommand(bbox, ctx, bbox.configure))
+    .action(runCommandOpts(bbox, ctx, bbox.configure))
 
-  program.command('run')
-    .action(runCommand(bbox, ctx, bbox.run))
-    .option('--runnable <string>', 'Command to run');
+  program.command('run <module>')
+    .action(runCommand(bbox, ctx, bbox.run, (module, command: Command, runnable) => {
+      return {
+        module,
+        runnable: runnable.join(' ')
+      }
+    }))
+
+  // program.command('run')
+  //   .action(runCommand(bbox, ctx, bbox.run))
 
   program.command('shell')
-    .action(runCommand(bbox, ctx, bbox.shell))
+    .action(runCommandOpts(bbox, ctx, bbox.shell))
 
   //cli init
   await bbox.onCliInit(program, ctx);

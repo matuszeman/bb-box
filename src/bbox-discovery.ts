@@ -1,7 +1,7 @@
-import * as fs from "fs";
-import * as nodePath from "path";
+import * as fs from 'fs';
+import * as nodePath from 'path';
 import * as globby from 'globby';
-import {BboxModule, Module, ModuleSpec, ModuleState, Runtime, Service} from './bbox';
+import {BboxModule, Module, ModuleSpec, ModuleState, Runtime, Service, ServiceProcessStatus} from './bbox';
 
 export class BboxDiscovery {
   private bboxFile = 'bbox.js'
@@ -109,7 +109,8 @@ export class BboxDiscovery {
     // TODO types
     const state: ModuleState = Object.assign<ModuleState, Partial<ModuleState>>({
       ranMigrations: [],
-      built: false
+      built: false,
+      ranAllMigrations: false,
     }, moduleStateFile);
 
     const path = absolutePath.replace(rootPath, '').slice(1);
@@ -146,8 +147,12 @@ export class BboxDiscovery {
           module.availableRuntimes.push(Runtime.Local);
         }
         const service: Service = {
+          module,
           name: serviceSpec.name,
-          spec: serviceSpec
+          spec: serviceSpec,
+          state: {
+            processStatus: ServiceProcessStatus.Unknown
+          }
         };
         module.services[serviceName] = service;
       }

@@ -11,19 +11,20 @@ import {BboxDiscovery} from './bbox-discovery';
 
 export type Cli = Commander.Command;
 
-export interface RunnableFnOpts {
+export interface RunnableFnParams {
   module: Module;
 }
 
-//type RunnableFn = (RunnableFnOpts) => Promise<any>;
-//type Runnable = string | string[] | RunnableFn | RunnableFn[];
-type RunnableSpec = string | string[];
-type DependencySpec = string;
+export type RunnableFn = (params: RunnableFnParams) => Promise<any>;
+export type Runnable = string | RunnableFn;
+export type RunnableSpec = Runnable | Runnable[];
+export type DependencySpec = string;
 export type EnvValuesSpec = {[key: string]: any};
 
-enum ServiceProcessStatus {
+export enum ServiceProcessStatus {
   Unknown = 'Unknown',
-  Online = 'Online'
+  Online = 'Online',
+  Offline = 'Offline'
 }
 
 export interface SubServiceSpec {
@@ -51,10 +52,6 @@ export interface ServiceSpec {
   values?: {[key: string]: any}
 }
 
-export enum Command {
-  Build = 'Build'
-}
-
 export enum Runtime {
   Local = 'Local',
   Docker = 'Docker'
@@ -62,6 +59,7 @@ export enum Runtime {
 
 export interface ModuleState {
   ranMigrations: string[];
+  ranAllMigrations: boolean;
   built: boolean;
 }
 
@@ -88,9 +86,15 @@ export interface BboxModule {
   beforeStatus?(bbox: Bbox, ctx: Ctx): Promise<any>;
 }
 
+export interface ServiceState {
+  processStatus: ServiceProcessStatus
+}
+
 export class Service {
+  module: Module;
   name: string;
   spec: ServiceSpec;
+  state: ServiceState;
 }
 
 export class Module {
@@ -109,8 +113,9 @@ export class Module {
 }
 
 export interface Ctx {
-  projectOpts: ProjectOpts,
-  processList: ProcessList
+  projectOpts: ProjectOpts
+  processList: ProcessList,
+  stagedStates: {service?: {service: Service, state: Partial<ServiceState>}, module?: {module: Module, state: Partial<ModuleState>}}[];
 }
 
 export class ServiceCommandParams {
@@ -119,6 +124,8 @@ export class ServiceCommandParams {
 }
 
 export class RunCommandParams {
+  @jf.string().required()
+  module: string;
   @jf.string().required()
   runnable: string;
 }
@@ -138,7 +145,7 @@ export class ListCommandParams {
   mode?: string;
 }
 
-export function commandMethod(params: {paramsType?: any} = {}) {
+export function validateParams(params: {paramsType?: any} = {}) {
   return function(target: any, propertyKey: string, descriptor: PropertyDescriptor) {
     const [methodParams, ctx] = Reflect.getMetadata('design:paramtypes', target, propertyKey);
     if (methodParams.name !== 'Object') {
@@ -198,29 +205,20 @@ export class Bbox {
     }
   }
 
-  @commandMethod()
+  @validateParams()
   async test(params: ServiceCommandParams, ctx: Ctx) {
     //const {module, service} = await this.getService(params.services[0]);
     //console.log(module, service); // XXX
     //await this.processManager.sendDataToService(module, service);
   }
 
-  @commandMethod()
+  @validateParams()
   async configure(params: ConfigureParams, ctx: Ctx) {
 
   }
 
-  @commandMethod()
   async run(params: RunCommandParams, ctx: Ctx) {
-    const modules = await this.getAllModules(ctx);
-    if (modules.length === 0) {
-      throw new Error('No modules found');
-    }
-    if (modules.length > 1) {
-      throw new Error('More modules found');
-    }
-    const module = modules[0];
-
+    const module = await this.getModule(params.module, ctx);
     try {
       await this.runInteractive(module, params.runnable, ctx);
     } catch (e) {
@@ -229,45 +227,88 @@ export class Bbox {
     }
   }
 
-  @commandMethod()
+  @validateParams()
   async shell(params: ShellParams, ctx: Ctx) {
     const module = await this.getModule(params.services[0], ctx);
 
     //TODO
   }
 
-  @commandMethod()
+  @validateParams()
   async build(params: ServiceCommandParams, ctx: Ctx) {
     const module = await this.getModule(params.services[0], ctx);
 
-    await this.runBuild(module, ctx);
+    await this.stageBuild(module, ctx);
+    await this.executeStaged(ctx);
   }
 
-  @commandMethod()
+  @validateParams()
   async start(params: ServiceCommandParams, ctx: Ctx) {
-    const {module, service} = await this.getService(params.services[0], ctx);
+    const {service} = await this.getService(params.services[0], ctx);
 
-    await this.runStartDependenciesIfNeeded(module, service, ctx);
+    await this.stageStartDependenciesIfNeeded(service, ctx);
 
-    await this.runStart(module, service, ctx);
+    await this.stageStart(service, ctx);
+
+    await this.executeStaged(ctx);
   }
 
-  @commandMethod()
+  @validateParams()
   async stop(params: ServiceCommandParams, ctx: Ctx) {
-    const {service, module} = await this.getService(params.services[0], ctx);
-    await this.processManager.stop(module, service, ctx);
+    const {service} = await this.getService(params.services[0], ctx);
+
+    this.stageServiceState(service, {processStatus: ServiceProcessStatus.Offline}, ctx);
+
+    await this.executeStaged(ctx);
   }
 
-  @commandMethod()
+  @validateParams()
   async migrate(params: ServiceCommandParams, ctx: Ctx) {
     const module = await this.getModule(params.services[0], ctx);
-    await this.runMigrate(module, ctx);
+    await this.stageMigrationsIfNeeded(module, ctx);
+    await this.executeStaged(ctx);
   }
 
-  @commandMethod()
+  @validateParams()
   async value(params: ServiceCommandParams, ctx: Ctx) {
     const ret = await this.provideValue(params.services[0], ctx);
     console.log(ret); // XXX
+  }
+
+  private async executeStaged(ctx: Ctx) {
+    for (const moduleOrService of ctx.stagedStates) {
+      // TODO detect module or service
+      if (moduleOrService.module) {
+        const {module, state} = moduleOrService.module;
+        console.log(`Service ${module.name}: Applying state`, state); // XXX
+        if (typeof state.built !== 'undefined') {
+          if (state.built && !module.state.built) {
+            await this.runBuild(module, ctx);
+          }
+        }
+        if (typeof state.ranAllMigrations !== 'undefined') {
+          await this.runMigrate(module, ctx);
+        }
+      }
+
+      if (moduleOrService.service) {
+        const {service, state} = moduleOrService.service;
+        console.log(`Service ${service.name}: Applying state`, state); // XXX
+        if (typeof state.processStatus !== 'undefined') {
+          switch (state.processStatus) {
+            case ServiceProcessStatus.Online:
+              await this.processManager.startAndWait(service, ctx);
+              break;
+            case ServiceProcessStatus.Offline:
+              await this.processManager.stopAndWait(service, ctx);
+              break;
+            default:
+              throw new Error(`Unhandled ServiceProcessStatus ${state.processStatus}`);
+          }
+        }
+      }
+
+    }
   }
 
   async provideValue(valueName, ctx) {
@@ -284,14 +325,16 @@ export class Bbox {
         throw new Error(`Value provider ${providerName} not found`);
       }
 
-      await this.runBuildIfNeeded(module, ctx);
+      await this.stageBuildIfNeeded(module, ctx);
+      await this.executeStaged(ctx);
+
       return await this.processManager.run(module, serviceSpec.valueProviders[providerName], serviceSpec.env, ctx);
     } catch (e) {
       throw Error(`Could not get ${valueName} value: ${e.message}`);
     }
   }
 
-  @commandMethod()
+  @validateParams()
   async list(params: ListCommandParams, ctx: Ctx) {
     const modules = await this.getAllModules(ctx);
     for (const module of modules) {
@@ -306,27 +349,28 @@ export class Bbox {
     await this.processManager.onShutdown();
   }
 
-  private async runStart(module: Module, service: Service, ctx: Ctx) {
-    if (service.spec.provideEnvValues) {
-      const envValues = await this.provideValues(service.spec.provideEnvValues, ctx);
-      Object.assign(service.spec.env, envValues);
-    }
+  private async stageStart(service: Service, ctx: Ctx) {
+    // if (service.spec.provideEnvValues) {
+    //   const envValues = await this.provideValues(service.spec.provideEnvValues, ctx);
+    //   Object.assign(service.spec.env, envValues);
+    // }
 
-    await this.runBuildIfNeeded(module, ctx);
-    await this.runMigrationsIfNeeded(module, ctx);
-    await this.processManager.startIfNeeded(module, service, ctx);
+    await this.stageBuildIfNeeded(service.module, ctx);
+    await this.stageMigrationsIfNeeded(service.module, ctx);
+
+    this.stageServiceState(service, {processStatus: ServiceProcessStatus.Online}, ctx);
   }
 
-  async runStartDependenciesIfNeeded(module: Module, service: Service, ctx: Ctx) {
+  async stageStartDependenciesIfNeeded(service: Service, ctx: Ctx) {
     const serviceSpec = service.spec;
     if (!serviceSpec.dependencies) {
       return;
     }
 
     for (const serviceDependencyName of serviceSpec.dependencies) {
-      const {module, service} = await this.getService(serviceDependencyName, ctx);
-      await this.runStartDependenciesIfNeeded(module, service, ctx);
-      await this.runStart(module, service, ctx);
+      const {service} = await this.getService(serviceDependencyName, ctx);
+      await this.stageStartDependenciesIfNeeded(service, ctx);
+      await this.stageStart(service, ctx);
     }
   }
 
@@ -376,6 +420,19 @@ export class Bbox {
     return ret;
   }
 
+  private async stageBuild(module: Module, ctx: Ctx) {
+    module.state.built = false;
+    this.stageModuleState(module, {built: true}, ctx);
+  }
+
+  private stageServiceState(service: Service, state: Partial<ServiceState>, ctx: Ctx) {
+    ctx.stagedStates.push({service: {service, state}});
+  }
+
+  private stageModuleState(module: Module, state: Partial<ModuleState>, ctx: Ctx) {
+    ctx.stagedStates.push({module: {module, state}});
+  }
+
   private async runBuild(module: Module, ctx: Ctx) {
     if (!module.spec.build) {
       throw new Error('Module has not build action specified');
@@ -389,7 +446,7 @@ export class Bbox {
 
   private async runMigrate(module: Module, ctx: Ctx): Promise<{state?: Partial<ModuleState>}> {
     if (!module.spec.migrations) {
-      throw new Error('Module has not build action specified');
+      throw new Error('Module has migrations specified');
     }
 
     const diff = this.getNotAppliedMigrations(module);
@@ -411,6 +468,9 @@ export class Bbox {
       }
     }
 
+    module.state.ranAllMigrations = true;
+    this.fileManager.saveState(module);
+
     console.log(`> All new migrations applied.`); // XXX
 
     return {};
@@ -418,30 +478,37 @@ export class Bbox {
 
   private async runInteractive(module: Module, runnable: RunnableSpec, ctx: Ctx) {
     if (Array.isArray(runnable)) {
-      for (const cmd of runnable) {
-        await this.processManager.runInteractive(module, cmd, {}, ctx);
+      for (const run of runnable) {
+        await this.runInteractive(module, run, ctx);
       }
+      return;
+    }
+
+    if (typeof runnable === 'function') {
+      await runnable({
+        module: module
+      });
       return;
     }
 
     await this.processManager.runInteractive(module, runnable, {}, ctx);
   }
 
-  private async runBuildIfNeeded(module: Module, ctx: Ctx) {
+  private async stageBuildIfNeeded(module: Module, ctx: Ctx) {
     if (module.state.built || !module.spec.build) {
       return;
     }
 
-    await this.runBuild(module, ctx);
+    this.stageModuleState(module, {built: true}, ctx);
   }
 
-  private async runMigrationsIfNeeded(module: Module, ctx: Ctx) {
+  private async stageMigrationsIfNeeded(module: Module, ctx: Ctx) {
     const migrations = this.getNotAppliedMigrations(module);
     if (migrations.length === 0) {
       return;
     }
 
-    await this.runMigrate(module, ctx);
+    this.stageModuleState(module, {ranAllMigrations: true}, ctx);
   }
 
   private getNotAppliedMigrations(module: Module) {

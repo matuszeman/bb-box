@@ -2,7 +2,7 @@ import {promisify} from "util";
 import * as pm2 from 'pm2';
 import * as fs from "fs";
 import * as waitOn from 'wait-on';
-import {spawnSync} from "child_process";
+import {spawnSync, SpawnSyncReturns} from 'child_process';
 import {ProcessDescription} from 'pm2';
 import {Ctx, EnvValuesSpec, Module, Runtime, Service, ServiceSpec} from './bbox';
 
@@ -34,15 +34,37 @@ export class ProcessList {
 export class ProcessManager {
   private pm2;
 
-  async startIfNeeded(module: Module, service: Service, ctx: Ctx) {
+  async startIfNeeded(service: Service, ctx: Ctx) {
     const process = await this.findServiceProcess(service, ctx);
     if (process && process.status === ProcessStatus.Running) {
       return;
     }
-    await this.start(module, service, ctx);
+    await this.start(service, ctx);
   }
 
-  async start(module: Module, service: Service, ctx: Ctx) {
+  async startAndWait(service: Service, ctx: Ctx) {
+    await this.start(service, ctx);
+    await this.waitForStatus(service, ProcessStatus.Running, ctx);
+  }
+
+  private async waitForStatus(service, status: ProcessStatus, ctx: Ctx) {
+    while(true) {
+      const serviceProcess = await this.findServiceProcess(service, ctx);
+      if (serviceProcess.status === status) {
+        break;
+      }
+
+      console.log('Waiting for running process...'); // XXX
+      await this.wait(1000);
+    }
+  }
+
+  private async wait(ms: number) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  async start(service: Service, ctx: Ctx) {
+    const module = service.module;
     const serviceSpec = service.spec;
     if (module.availableRuntimes.length === 0) {
       console.log(`No available runtime for service: ${serviceSpec.name}`);
@@ -107,7 +129,6 @@ export class ProcessManager {
   }
 
   async runInteractive(module: Module, cmd: string, env: EnvValuesSpec, ctx: Ctx) {
-    console.log(module); // XXX
     if (module.runtime === Runtime.Docker) {
       this.runInteractiveDocker(module, cmd, ctx);
       return;
@@ -124,13 +145,18 @@ export class ProcessManager {
     return this.runLocal(module.cwdAbsolutePath, cmd, env);
   }
 
-  async stop(module: Module, service: Service, ctx: Ctx) {
+  async stop(service: Service, ctx: Ctx) {
     await this.pm2Connect();
     try {
       await pm2Stop(service.name);
     } catch (e) {
       throw new Error(`PM2 error: ${e.message}`);
     }
+  }
+
+  async stopAndWait(service: Service, ctx: Ctx) {
+    await this.stop(service, ctx);
+    await this.waitForStatus(service, ProcessStatus.NotRunning, ctx);
   }
 
   async getProcessList(ctx: Ctx): Promise<ProcessList> {
@@ -201,9 +227,12 @@ export class ProcessManager {
       shell: true, //throws error without this
       stdio: 'inherit'
     });
-    if (ret.status !== 0) {
-      throw new Error('spawn error');
+    if (ret.status !== null && ret.status !== 0) {
+      console.log(ret); // XXX
+      throw new Error(`${ret.status}: ${ret.stderr}`);
     }
+
+    return ret;
   }
 
   private runLocal(cwd: string, cmd: string, env: EnvValuesSpec) {
