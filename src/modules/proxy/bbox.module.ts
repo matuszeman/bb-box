@@ -29,14 +29,14 @@ export class ProxyModule implements BboxModule {
   }
 
   async configure(ctx: Ctx) {
-    const {service, module} = await this.bbox.getService('bbox-proxy', ctx);
+    const proxyService = await this.bbox.getService('bbox-proxy');
 
     const domain = await this.bbox.provideValue('bbox.domain', ctx);
     const dockerHostIp = await this.bbox.provideValue('bbox.dockerHostIp', ctx);
     //const httpPort = await this.bbox.provideValue('bbox-proxy.httpPort', ctx);
     //const httpsPort = await this.bbox.provideValue('bbox-proxy.httpsPort', ctx);
 
-    const modules = await this.bbox.getAllModules(ctx);
+    const modules = await this.bbox.getAllModules();
 
     const proxiedServices: {name: string, port?: number, domainName: string, ip: string}[] = [];
     for (const module of modules) {
@@ -71,11 +71,11 @@ export class ProxyModule implements BboxModule {
     }
 
     const proxyConfig: ProxyConfig = {
-      httpPort: service.spec.subServices['http'].port,
-      httpsPort: service.spec.subServices['https'].port,
+      httpPort: proxyService.spec.subServices['http'].port,
+      httpsPort: proxyService.spec.subServices['https'].port,
       forward
     }
-    fs.writeFileSync(`${module.bboxPath}/proxy-config.json`, JSON.stringify(proxyConfig, null, 2));
+    fs.writeFileSync(`${proxyService.module.bboxPath}/proxy-config.json`, JSON.stringify(proxyConfig, null, 2));
 
     // docker
     if (fs.existsSync(ctx.projectOpts.dockerComposePath)) {

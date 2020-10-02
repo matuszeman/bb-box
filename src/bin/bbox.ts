@@ -93,9 +93,6 @@ function runCommand(bbox: Bbox, ctx: Ctx, handler, paramsHandler) {
   createServiceCommand(program, 'stop')
     .action(runServiceCommand(bbox, ctx, bbox.stop));
 
-  createServiceCommand(program, 'migrate')
-    .action(runServiceCommand(bbox, ctx, bbox.migrate));
-
   createServiceCommand(program, 'value')
     .action(runServiceCommand(bbox, ctx, bbox.value));
 
@@ -105,12 +102,13 @@ function runCommand(bbox: Bbox, ctx: Ctx, handler, paramsHandler) {
   createServiceCommand(program, 'test')
     .action(runServiceCommand(bbox, ctx, bbox.test));
 
-  // program.command('proxy')
-  //   .action(runCommand(box, box.proxy));
-
-  program.command('configure')
+  program.command('configure <module>')
     .alias('c')
-    .action(runCommandOpts(bbox, ctx, bbox.configure))
+    .action(runCommand(bbox, ctx, bbox.configure, (module) => {
+      return {
+        module
+      }
+    }))
 
   program.command('run <module>')
     .action(runCommand(bbox, ctx, bbox.run, (module, command: Command, runnable) => {

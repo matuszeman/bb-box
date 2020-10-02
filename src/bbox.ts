@@ -2,7 +2,7 @@ import 'source-map-support/register';
 import 'reflect-metadata';
 
 import * as Commander from 'commander';
-import { difference } from 'lodash';
+import { difference, find } from 'lodash';
 import * as jf from 'joiful';
 import {PrettyJoi} from './pretty-joi';
 import {WaitOnOptions} from 'wait-on';
@@ -58,9 +58,24 @@ export enum Runtime {
 }
 
 export interface ModuleState {
-  ranMigrations: string[];
-  ranAllMigrations: boolean;
   built: boolean;
+  builtOnce: string[];
+  configured: boolean;
+  configuredOnce: string[];
+}
+
+export type RunSpec = RunnableSpec;
+
+export type RunOnceSpec = {[key: string]: RunnableSpec};
+
+export class BuildSpec {
+  once: RunOnceSpec;
+  run: RunnableSpec;
+}
+
+export class ConfigureSpec {
+  once?: RunOnceSpec;
+  run?: RunnableSpec;
 }
 
 export class ModuleSpec {
@@ -74,8 +89,9 @@ export class ModuleSpec {
   };
   services: {[key: string]: ServiceSpec};
   runtime?: Runtime;
-  build?: RunnableSpec;
-  migrations?: {[key: string]: RunnableSpec};
+  configure?: ConfigureSpec;
+  build?: BuildSpec;
+  //migrations?: {[key: string]: RunnableSpec};
   env?: {[key: string]: any};
 }
 
@@ -131,8 +147,8 @@ export class RunCommandParams {
 }
 
 export class ConfigureParams {
-  @jf.string().allow('')
-  todo?: string;
+  @jf.string().required()
+  module?: string;
 }
 
 export class ShellParams {
@@ -214,11 +230,13 @@ export class Bbox {
 
   @validateParams()
   async configure(params: ConfigureParams, ctx: Ctx) {
-
+    const module = this.getModule(params.module);
+    this.stageConfigureIfNeeded(module, ctx);
+    await this.executeStaged(ctx);
   }
 
   async run(params: RunCommandParams, ctx: Ctx) {
-    const module = await this.getModule(params.module, ctx);
+    const module = this.getModule(params.module);
     try {
       await this.runInteractive(module, params.runnable, ctx);
     } catch (e) {
@@ -229,14 +247,14 @@ export class Bbox {
 
   @validateParams()
   async shell(params: ShellParams, ctx: Ctx) {
-    const module = await this.getModule(params.services[0], ctx);
+    const module = this.getModule(params.services[0]);
 
     //TODO
   }
 
   @validateParams()
   async build(params: ServiceCommandParams, ctx: Ctx) {
-    const module = await this.getModule(params.services[0], ctx);
+    const module = this.getModule(params.services[0]);
 
     await this.stageBuild(module, ctx);
     await this.executeStaged(ctx);
@@ -244,7 +262,7 @@ export class Bbox {
 
   @validateParams()
   async start(params: ServiceCommandParams, ctx: Ctx) {
-    const {service} = await this.getService(params.services[0], ctx);
+    const service = this.getService(params.services[0]);
 
     await this.stageStartDependenciesIfNeeded(service, ctx);
 
@@ -255,17 +273,10 @@ export class Bbox {
 
   @validateParams()
   async stop(params: ServiceCommandParams, ctx: Ctx) {
-    const {service} = await this.getService(params.services[0], ctx);
+    const service = await this.getService(params.services[0]);
 
     this.stageServiceState(service, {processStatus: ServiceProcessStatus.Offline}, ctx);
 
-    await this.executeStaged(ctx);
-  }
-
-  @validateParams()
-  async migrate(params: ServiceCommandParams, ctx: Ctx) {
-    const module = await this.getModule(params.services[0], ctx);
-    await this.stageMigrationsIfNeeded(module, ctx);
     await this.executeStaged(ctx);
   }
 
@@ -280,14 +291,17 @@ export class Bbox {
       // TODO detect module or service
       if (moduleOrService.module) {
         const {module, state} = moduleOrService.module;
-        console.log(`Service ${module.name}: Applying state`, state); // XXX
+        console.log(`Module ${module.name}: Applying state`, state); // XXX
         if (typeof state.built !== 'undefined') {
           if (state.built && !module.state.built) {
             await this.runBuild(module, ctx);
           }
         }
-        if (typeof state.ranAllMigrations !== 'undefined') {
-          await this.runMigrate(module, ctx);
+
+        if (typeof state.configured !== 'undefined') {
+          if (state.configured && !module.state.configured) {
+            await this.runConfigure(module, ctx);
+          }
         }
       }
 
@@ -314,7 +328,7 @@ export class Bbox {
   async provideValue(valueName, ctx) {
     try {
       const [serviceName, providerName] = valueName.split('.');
-      const {module, service} = await this.getService(serviceName, ctx);
+      const service = await this.getService(serviceName);
       const serviceSpec = service.spec;
 
       if (serviceSpec.values && serviceSpec.values[providerName]) {
@@ -325,10 +339,10 @@ export class Bbox {
         throw new Error(`Value provider ${providerName} not found`);
       }
 
-      await this.stageBuildIfNeeded(module, ctx);
+      this.stageBuildIfNeeded(service.module, ctx);
       await this.executeStaged(ctx);
 
-      return await this.processManager.run(module, serviceSpec.valueProviders[providerName], serviceSpec.env, ctx);
+      return await this.processManager.run(service.module, serviceSpec.valueProviders[providerName], serviceSpec.env, ctx);
     } catch (e) {
       throw Error(`Could not get ${valueName} value: ${e.message}`);
     }
@@ -336,11 +350,11 @@ export class Bbox {
 
   @validateParams()
   async list(params: ListCommandParams, ctx: Ctx) {
-    const modules = await this.getAllModules(ctx);
+    const modules = this.getAllModules();
     for (const module of modules) {
       for (const service of Object.values(module.services)) {
         const process = await this.processManager.findServiceProcess(service, ctx);
-        console.log(`${service.name} [${module.name}]: ${process?.status ?? 'Unknown'}, built: ${module.state.built}, pending migrations: ${this.getNotAppliedMigrations(module).join(', ')}, runtimes: ${module.availableRuntimes}`); // XXX
+        console.log(`${service.name} [${module.name}]: ${process?.status ?? 'Unknown'}, built: ${module.state.built}, runtimes: ${module.availableRuntimes}`); // XXX
       }
     }
   }
@@ -354,9 +368,9 @@ export class Bbox {
     //   const envValues = await this.provideValues(service.spec.provideEnvValues, ctx);
     //   Object.assign(service.spec.env, envValues);
     // }
-
-    await this.stageBuildIfNeeded(service.module, ctx);
-    await this.stageMigrationsIfNeeded(service.module, ctx);
+    this.stageConfigureIfNeeded(service.module, ctx);
+    this.stageBuildIfNeeded(service.module, ctx);
+    //await this.stageMigrationsIfNeeded(service.module, ctx);
 
     this.stageServiceState(service, {processStatus: ServiceProcessStatus.Online}, ctx);
   }
@@ -368,48 +382,10 @@ export class Bbox {
     }
 
     for (const serviceDependencyName of serviceSpec.dependencies) {
-      const {service} = await this.getService(serviceDependencyName, ctx);
+      const service = this.getService(serviceDependencyName);
       await this.stageStartDependenciesIfNeeded(service, ctx);
       await this.stageStart(service, ctx);
     }
-  }
-
-  async getModule(name: string, ctx: Ctx) {
-    const modules = await this.getAllModules(ctx);
-    const module = modules.find((module) => module.name === name);
-    if (!module) {
-      throw new Error(`Module "${name}" not found. All discovered modules: ${modules.map(m => m.name).join(', ')}`);
-    }
-    return module;
-  }
-
-  async getService(serviceName: string, ctx: Ctx) {
-    const modules = await this.getAllModules(ctx);
-    for (const module of modules) {
-      const service = Object.values(module.services).find(service => service.name === serviceName);
-      if (service) {
-        return {
-          module,
-          service
-        };
-      }
-    }
-
-    throw new Error(`Service "${serviceName}" not found.`);
-  }
-
-  async getAllModules(ctx: Ctx) {
-    if (!this.modules) {
-      throw new Error('Modules not initialized');
-    }
-    return this.modules;
-  }
-
-  async loadAllModules(ctx: Ctx) {
-    const internalModules = await this.fileManager.discoverInternalModules(ctx.projectOpts.rootPath);
-    const modules = await this.fileManager.discoverModules(ctx.projectOpts.rootPath);
-    modules.push(...internalModules);
-    return modules;
   }
 
   async provideValues(values: {[key: string]: string}, ctx) {
@@ -426,30 +402,66 @@ export class Bbox {
   }
 
   private stageServiceState(service: Service, state: Partial<ServiceState>, ctx: Ctx) {
+    const states = ctx.stagedStates
+      .filter((staged) => staged.service)
+      .map((s) => s.service.state);
+    const found = find(states, state);
+    if (found) {
+      return;
+    }
+
     ctx.stagedStates.push({service: {service, state}});
   }
 
   private stageModuleState(module: Module, state: Partial<ModuleState>, ctx: Ctx) {
+    const states = ctx.stagedStates
+      .filter((staged) => staged.module)
+      .map((s) => s.module.state);
+    const found = find(states, state);
+    if (found) {
+      return;
+    }
+
     ctx.stagedStates.push({module: {module, state}});
   }
 
   private async runBuild(module: Module, ctx: Ctx) {
-    if (!module.spec.build) {
+    const spec = module.spec.build;
+    if (!spec) {
       throw new Error('Module has not build action specified');
     }
 
-    await this.runInteractive(module, module.spec.build, ctx);
-
-    module.state.built = true;
-    this.fileManager.saveState(module);
-  }
-
-  private async runMigrate(module: Module, ctx: Ctx): Promise<{state?: Partial<ModuleState>}> {
-    if (!module.spec.migrations) {
-      throw new Error('Module has migrations specified');
+    if (spec.run) {
+      await this.runInteractive(module, spec.run, ctx);
     }
 
-    const diff = this.getNotAppliedMigrations(module);
+    if (spec.once) {
+      await this.runOnce(module, spec.once, module.state.builtOnce, ctx);
+    }
+
+    module.state.built = true;
+    this.fileManager.saveModuleState(module);
+  }
+
+  private async runConfigure(module: Module, ctx: Ctx) {
+    if (!module.spec.configure) {
+      throw new Error('Module has not build action specified');
+    }
+
+    if (module.spec.configure.run) {
+      await this.runInteractive(module, module.spec.configure.run, ctx);
+    }
+
+    if (module.spec.configure.once) {
+      await this.runOnce(module, module.spec.configure.once, module.state.configuredOnce, ctx);
+    }
+
+    module.state.configured = true;
+    this.fileManager.saveModuleState(module);
+  }
+
+  private async runOnce(module: Module, runOnceSpec: RunOnceSpec, state: string[], ctx: Ctx): Promise<{state?: Partial<ModuleState>}> {
+    const diff = this.getNotAppliedMigrations(runOnceSpec, state);
     if (diff.length === 0) {
       console.log('> No new migrations'); // XXX
       return;
@@ -458,18 +470,15 @@ export class Bbox {
     for (const migId of diff) {
       try {
         console.log(`> Migrating ${migId}`); // XXX
-        await this.runInteractive(module, module.spec.migrations[migId], ctx);
+        await this.runInteractive(module, runOnceSpec[migId], ctx);
 
-        module.state.ranMigrations.push(migId);
-        this.fileManager.saveState(module);
+        state.push(migId);
+        this.fileManager.saveModuleState(module);
       } catch (e) {
         console.log(`> Migration ${migId} failed.`); // XXX
         throw e;
       }
     }
-
-    module.state.ranAllMigrations = true;
-    this.fileManager.saveState(module);
 
     console.log(`> All new migrations applied.`); // XXX
 
@@ -494,7 +503,25 @@ export class Bbox {
     await this.processManager.runInteractive(module, runnable, {}, ctx);
   }
 
-  private async stageBuildIfNeeded(module: Module, ctx: Ctx) {
+  private stageConfigureIfNeeded(module: Module, ctx: Ctx) {
+    if (!module.spec.configure) {
+      return;
+    }
+
+    let notAppliedMigrations = [];
+    if (module.spec.configure.once) {
+      notAppliedMigrations = this.getNotAppliedMigrations(module.spec.configure.once, module.state.configuredOnce);
+    }
+
+    if (module.state.configured && notAppliedMigrations.length === 0) {
+      return;
+    }
+
+    module.state.configured = false;
+    this.stageModuleState(module, {configured: true}, ctx);
+  }
+
+  private stageBuildIfNeeded(module: Module, ctx: Ctx) {
     if (module.state.built || !module.spec.build) {
       return;
     }
@@ -502,23 +529,54 @@ export class Bbox {
     this.stageModuleState(module, {built: true}, ctx);
   }
 
-  private async stageMigrationsIfNeeded(module: Module, ctx: Ctx) {
-    const migrations = this.getNotAppliedMigrations(module);
-    if (migrations.length === 0) {
-      return;
-    }
+  // private async stageMigrationsIfNeeded(module: Module, ctx: Ctx) {
+  //   const migrations = this.getNotAppliedMigrations(module);
+  //   if (migrations.length === 0) {
+  //     return;
+  //   }
+  //
+  //   this.stageModuleState(module, {ranAllMigrations: true}, ctx);
+  // }
 
-    this.stageModuleState(module, {ranAllMigrations: true}, ctx);
+  private getNotAppliedMigrations(current: RunOnceSpec, ran: string[]) {
+    const migrationIds = Object.keys(current).sort();
+    const diff = difference(migrationIds, ran);
+    return diff;
   }
 
-  private getNotAppliedMigrations(module: Module) {
-    if (!module.spec.migrations) {
-      return [];
+  getModule(name: string) {
+    const modules = this.getAllModules();
+    const module = modules.find((module) => module.name === name);
+    if (!module) {
+      throw new Error(`Module "${name}" not found. All discovered modules: ${modules.map(m => m.name).join(', ')}`);
+    }
+    return module;
+  }
+
+  getService(serviceName: string) {
+    const modules = this.getAllModules();
+    for (const module of modules) {
+      const service = Object.values(module.services).find(service => service.name === serviceName);
+      if (service) {
+        return service;
+      }
     }
 
-    const migrationIds = Object.keys(module.spec.migrations).sort();
-    const diff = difference(migrationIds, module.state.ranMigrations);
-    return diff;
+    throw new Error(`Service "${serviceName}" not found.`);
+  }
+
+  getAllModules() {
+    if (!this.modules) {
+      throw new Error('Modules not initialized');
+    }
+    return this.modules;
+  }
+
+  async loadAllModules(ctx: Ctx) {
+    const internalModules = await this.fileManager.discoverInternalModules(ctx.projectOpts.rootPath);
+    const modules = await this.fileManager.discoverModules(ctx.projectOpts.rootPath);
+    modules.push(...internalModules);
+    return modules;
   }
 }
 

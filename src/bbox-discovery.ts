@@ -84,7 +84,7 @@ export class BboxDiscovery {
     return modules;
   }
 
-  saveState(module: Module) {
+  saveModuleState(module: Module) {
     fs.writeFileSync(`${module.bboxPath}/state.json`, JSON.stringify(module.state, null, 2));
   }
 
@@ -108,9 +108,10 @@ export class BboxDiscovery {
     const moduleStateFile = this.loadJsFile<Partial<ModuleState>>(stateFilePath);
     // TODO types
     const state: ModuleState = Object.assign<ModuleState, Partial<ModuleState>>({
-      ranMigrations: [],
       built: false,
-      ranAllMigrations: false,
+      builtOnce: [],
+      configured: false,
+      configuredOnce: []
     }, moduleStateFile);
 
     const path = absolutePath.replace(rootPath, '').slice(1);

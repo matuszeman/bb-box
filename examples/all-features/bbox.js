@@ -1,12 +1,9 @@
 module.exports = {
   name: 'all-features',
   services: {
-    project: {
+    bbox: {
       values: {
-        email: 'user@example.com',
-      },
-      valueProviders: {
-        valueProvider: 'node value-provider.js'
+        domain: 'local.app.garden'
       }
     },
     all: {

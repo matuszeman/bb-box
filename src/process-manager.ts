@@ -218,6 +218,7 @@ export class ProcessManager {
   }
 
   private runInteractiveLocal(cwd: string, cmd: string, env: EnvValuesSpec) {
+    console.log('runInteractiveLocal: ', cmd); // XXX
     // env must be set from process.env otherwise docker-compose won't work
     env = {...process.env, ...env};
 
@@ -236,6 +237,7 @@ export class ProcessManager {
   }
 
   private runLocal(cwd: string, cmd: string, env: EnvValuesSpec) {
+    console.log('runLocal: ', cmd); // XXX
     // env must be set from process.env otherwise docker-compose won't work
     env = {...process.env, ...env};
 
