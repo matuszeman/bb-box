@@ -4,7 +4,7 @@ import * as fs from "fs";
 import * as waitOn from 'wait-on';
 import {spawnSync} from "child_process";
 import {ProcessDescription} from 'pm2';
-import {Ctx, EnvValues, Module, Runtime, Service} from './bbox';
+import {Ctx, EnvValuesSpec, Module, Runtime, Service, ServiceSpec} from './bbox';
 
 const pm2Connect = promisify(pm2.connect).bind(pm2);
 const pm2Disconnect = promisify(pm2.disconnect).bind(pm2);
@@ -43,37 +43,43 @@ export class ProcessManager {
   }
 
   async start(module: Module, service: Service, ctx: Ctx) {
+    const serviceSpec = service.spec;
     if (module.availableRuntimes.length === 0) {
-      console.log(`No available runtime for service: ${service.name}`);
+      console.log(`No available runtime for service: ${serviceSpec.name}`);
       return;
     }
 
     await this.pm2Connect();
 
+    const env = {
+      BBOX_PATH: module.bboxPath,
+      ...serviceSpec.env
+    };
+
     if (module.runtime === Runtime.Docker) {
       const cmdArgs = [];
-      if (service.port) {
-        cmdArgs.push(`-p ${service.port}:${service.containerPort ?? service.port}`);
+      if (serviceSpec.port) {
+        cmdArgs.push(`-p ${serviceSpec.port}:${serviceSpec.containerPort ?? serviceSpec.port}`);
       }
 
-      if (service.subServices) {
-        for (const subServiceKey of Object.keys(service.subServices)) {
-          const subService = service.subServices[subServiceKey];
+      if (serviceSpec.subServices) {
+        for (const subServiceKey of Object.keys(serviceSpec.subServices)) {
+          const subService = serviceSpec.subServices[subServiceKey];
           cmdArgs.push(`-p ${subService.port}:${subService.containerPort ?? subService.port}`);
         }
       }
 
       const runArgs = this.createDockerComposeRunArgs(module, false, ctx, cmdArgs);
 
-      if (service.start) {
-        runArgs.push(service.start);
+      if (serviceSpec.start) {
+        runArgs.push(serviceSpec.start);
       }
       const args = runArgs.join(' ');
       const cmd = `docker-compose ${args}`;
       console.log(cmd); // XXX
       await pm2Start({
         cwd: ctx.projectOpts.rootPath,
-        name: service.name,
+        name: serviceSpec.name,
         script: 'docker-compose',
         args, // must be string, didn't work with array
         interpreter: 'none',// TODO needed?
@@ -81,18 +87,18 @@ export class ProcessManager {
       });
     } else {
       await pm2Start({
-        name: service.name,
+        name: serviceSpec.name,
         cwd: module.absolutePath,
-        script: service.start,
+        script: serviceSpec.start,
         interpreter: 'none',// TODO needed?
-        env: service.env,
+        env,
         autorestart: false
       });
     }
 
-    if (service.healthCheck && service.healthCheck.waitOn) {
-      console.log(`Waiting for the service health check: ${service.healthCheck.waitOn.resources.join(', ')}`); // XXX
-      await waitOn(service.healthCheck.waitOn);
+    if (serviceSpec.healthCheck && serviceSpec.healthCheck.waitOn) {
+      console.log(`Waiting for the service health check: ${serviceSpec.healthCheck.waitOn.resources.join(', ')}`); // XXX
+      await waitOn(serviceSpec.healthCheck.waitOn);
     }
   }
 
@@ -100,21 +106,22 @@ export class ProcessManager {
     return this.pm2Disconnect()
   }
 
-  async runInteractive(module: Module, cmd: string, env: EnvValues, ctx: Ctx) {
+  async runInteractive(module: Module, cmd: string, env: EnvValuesSpec, ctx: Ctx) {
+    console.log(module); // XXX
     if (module.runtime === Runtime.Docker) {
       this.runInteractiveDocker(module, cmd, ctx);
       return;
     }
 
-    this.runInteractiveLocal(module.absolutePath, cmd, env);
+    this.runInteractiveLocal(module.cwdAbsolutePath, cmd, env);
   }
 
-  async run(module: Module, cmd: string, env: EnvValues, ctx: Ctx) {
+  async run(module: Module, cmd: string, env: EnvValuesSpec, ctx: Ctx) {
     if (module.runtime === Runtime.Docker) {
       return this.runLocal(ctx.projectOpts.rootPath, this.createDockerComposeRunCmd(module, cmd, false, ctx), {});
     }
 
-    return this.runLocal(module.absolutePath, cmd, env);
+    return this.runLocal(module.cwdAbsolutePath, cmd, env);
   }
 
   async stop(module: Module, service: Service, ctx: Ctx) {
@@ -184,7 +191,7 @@ export class ProcessManager {
     return args;
   }
 
-  private runInteractiveLocal(cwd: string, cmd: string, env: EnvValues) {
+  private runInteractiveLocal(cwd: string, cmd: string, env: EnvValuesSpec) {
     // env must be set from process.env otherwise docker-compose won't work
     env = {...process.env, ...env};
 
@@ -199,7 +206,7 @@ export class ProcessManager {
     }
   }
 
-  private runLocal(cwd: string, cmd: string, env: EnvValues) {
+  private runLocal(cwd: string, cmd: string, env: EnvValuesSpec) {
     // env must be set from process.env otherwise docker-compose won't work
     env = {...process.env, ...env};
 

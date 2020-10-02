@@ -2,22 +2,17 @@ import {Command} from 'commander';
 import {Bbox, ServiceCommandParams, Ctx} from '../bbox';
 import * as process from 'process';
 import { ProcessManager } from '../process-manager';
-import {FileManager} from '../file-manager';
+import {BboxDiscovery} from '../bbox-discovery';
 
 async function createBox() {
-  const fileManager = new FileManager();
+  const fileManager = new BboxDiscovery();
   const processManager = new ProcessManager();
   const rootPath = fileManager.discoverRootPath(process.cwd());
   const ctx: Ctx = {
     processList: undefined,
     projectOpts: {
       rootPath,
-      proxyConfigPath: `${rootPath}/.bbox/proxy-config.json`,
       dockerComposePath: `${rootPath}/docker-compose.yml`,
-      reverseProxy: {
-        port: 80
-      },
-      domain: 'local.app.garden'
     }
   }
   const bbox = new Bbox(fileManager, processManager);
@@ -90,7 +85,7 @@ function runServiceCommand(bbox: Bbox, ctx: Ctx, handler) {
   createServiceCommand(program, 'value')
     .action(runServiceCommand(bbox, ctx, bbox.value));
 
-  program.command('list')
+  program.command('status').aliases(['list', 'ls'])
     .action(runCommand(bbox, ctx, bbox.list));
 
   createServiceCommand(program, 'test')
@@ -109,6 +104,9 @@ function runServiceCommand(bbox: Bbox, ctx: Ctx, handler) {
 
   program.command('shell')
     .action(runCommand(bbox, ctx, bbox.shell))
+
+  //cli init
+  await bbox.onCliInit(program, ctx);
 
   await program.parseAsync(process.argv);
 })();
