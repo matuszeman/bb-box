@@ -1,5 +1,5 @@
 import * as process from 'process';
-import {Bbox, FileManager, ProcessManager, RunnableFnOpts, Runner} from '../src/bbox';
+import {Bbox, BboxDiscovery, ProcessManager, RunnableFnParams, Runner} from '../src/bbox';
 
 const path = process.cwd() + '/examples/all-features';
 console.log(path); // XXX

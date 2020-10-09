@@ -31,6 +31,12 @@ export class ProcessList {
   processes: ProcessInstance[];
 }
 
+export class ProcessSpec {
+  name: string;
+  env: EnvValuesSpec;
+  cwd: string;
+}
+
 export class ProcessManager {
   private pm2;
 
@@ -42,7 +48,7 @@ export class ProcessManager {
     await this.start(service, ctx);
   }
 
-  async startAndWait(service: Service, ctx: Ctx) {
+  async startAndWaitUntilStarted(service: Service, ctx: Ctx) {
     await this.start(service, ctx);
     await this.waitForStatus(service, ProcessStatus.Running, ctx);
   }
@@ -50,11 +56,11 @@ export class ProcessManager {
   private async waitForStatus(service, status: ProcessStatus, ctx: Ctx) {
     while(true) {
       const serviceProcess = await this.findServiceProcess(service, ctx);
-      if (serviceProcess.status === status) {
+      if (serviceProcess && serviceProcess.status === status) {
         break;
       }
 
-      console.log('Waiting for running process...'); // XXX
+      console.log(`${service.name}: waiting to start the service`); // XXX
       await this.wait(1000);
     }
   }
@@ -91,7 +97,8 @@ export class ProcessManager {
         }
       }
 
-      const runArgs = this.createDockerComposeRunArgs(module, false, ctx, cmdArgs);
+      const runArgs = this.createDockerComposeRunArgs(module, false, ctx, env, cmdArgs);
+      runArgs.push(service.name);
 
       if (serviceSpec.start) {
         runArgs.push(serviceSpec.start);
@@ -105,7 +112,8 @@ export class ProcessManager {
         script: 'docker-compose',
         args, // must be string, didn't work with array
         interpreter: 'none',// TODO needed?
-        autorestart: false
+        autorestart: false,
+        killTimeout: 10000000, // TODO configurable
       });
     } else {
       await pm2Start({
@@ -114,7 +122,8 @@ export class ProcessManager {
         script: serviceSpec.start,
         interpreter: 'none',// TODO needed?
         env,
-        autorestart: false
+        autorestart: false,
+        killTimeout: 10000000, // TODO configurable
       });
     }
 
@@ -130,7 +139,7 @@ export class ProcessManager {
 
   async runInteractive(module: Module, cmd: string, env: EnvValuesSpec, ctx: Ctx) {
     if (module.runtime === Runtime.Docker) {
-      this.runInteractiveDocker(module, cmd, ctx);
+      this.runInteractiveDocker(module, cmd, ctx, env);
       return;
     }
 
@@ -139,7 +148,7 @@ export class ProcessManager {
 
   async run(module: Module, cmd: string, env: EnvValuesSpec, ctx: Ctx) {
     if (module.runtime === Runtime.Docker) {
-      return this.runLocal(ctx.projectOpts.rootPath, this.createDockerComposeRunCmd(module, cmd, false, ctx), {});
+      return this.runLocal(ctx.projectOpts.rootPath, this.createDockerComposeRunCmd(module, cmd, false, ctx, env), {});
     }
 
     return this.runLocal(module.cwdAbsolutePath, cmd, env);
@@ -154,7 +163,7 @@ export class ProcessManager {
     }
   }
 
-  async stopAndWait(service: Service, ctx: Ctx) {
+  async stopAndWaitUntilStopped(service: Service, ctx: Ctx) {
     await this.stop(service, ctx);
     await this.waitForStatus(service, ProcessStatus.NotRunning, ctx);
   }
@@ -185,17 +194,17 @@ export class ProcessManager {
     return processes.find((process) => process.serviceName === service.name);
   }
 
-  private runInteractiveDocker(module: Module, cmd: string, ctx: Ctx) {
-    this.runInteractiveLocal(ctx.projectOpts.rootPath, this.createDockerComposeRunCmd(module, cmd, true, ctx), {});
+  private runInteractiveDocker(module: Module, cmd: string, ctx: Ctx, env: EnvValuesSpec) {
+    this.runInteractiveLocal(ctx.projectOpts.rootPath, this.createDockerComposeRunCmd(module, cmd, true, ctx, env), {});
   }
 
-  private createDockerComposeRunCmd(module: Module, cmd: string | undefined, interactive: boolean, ctx: Ctx) {
-    const args = this.createDockerComposeRunArgs(module, interactive, ctx);
-    args.push(cmd);
+  private createDockerComposeRunCmd(module: Module, cmd: string | undefined, interactive: boolean, ctx: Ctx, env: EnvValuesSpec) {
+    const args = this.createDockerComposeRunArgs(module, interactive, ctx, env);
+    args.push(module.name, cmd);
     return `docker-compose ${args.join(' ')}`;
   }
 
-  private createDockerComposeRunArgs(module: Module, interactive: boolean, ctx: Ctx, cmdArgs: string[] = []) {
+  private createDockerComposeRunArgs(module: Module, interactive: boolean, ctx: Ctx, env: EnvValuesSpec, cmdArgs: string[] = []) {
     const args = [
       `--project-directory ${ctx.projectOpts.rootPath}`,
       `-f ${ctx.projectOpts.dockerComposePath}`
@@ -211,9 +220,12 @@ export class ProcessManager {
       args.push('-T');
     }
 
+    for (const envName in env) {
+      args.push(`-e ${envName}=${env[envName]}`);
+    }
+
     args.push(...cmdArgs);
 
-    args.push(module.name);
     return args;
   }
 
@@ -228,12 +240,7 @@ export class ProcessManager {
       shell: true, //throws error without this
       stdio: 'inherit'
     });
-    if (ret.status !== null && ret.status !== 0) {
-      console.log(ret); // XXX
-      throw new Error(`${ret.status}: ${ret.stderr}`);
-    }
-
-    return ret;
+    this.handleSpawnReturn(ret);
   }
 
   private runLocal(cwd: string, cmd: string, env: EnvValuesSpec) {
@@ -247,11 +254,17 @@ export class ProcessManager {
       shell: true, //throws error without this
       windowsHide: true
     });
-    if (ret.status !== 0) {
-      const err = ret.stderr.toString();
-      throw new Error(`spawn error: ${err}`);
-    }
+    this.handleSpawnReturn(ret);
     return ret.stdout.toString();
+  }
+
+  private handleSpawnReturn(ret) {
+    if (ret.signal === 'SIGINT') {
+      throw new Error('User interrupted');
+    }
+    if (ret.status !== null && ret.status !== 0) {
+      throw new Error(`Spawned process returned error code: ${ret.status}`);
+    }
   }
 
   private pm2ProcessToBboxProcess(proc: ProcessDescription): ProcessInstance {

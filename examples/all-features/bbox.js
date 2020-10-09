@@ -4,6 +4,9 @@ module.exports = {
     bbox: {
       values: {
         domain: 'local.app.garden'
+      },
+      valueProviders: {
+        'val': 'node value-provider.js'
       }
     },
     all: {

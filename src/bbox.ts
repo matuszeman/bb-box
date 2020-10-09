@@ -8,10 +8,13 @@ import {PrettyJoi} from './pretty-joi';
 import {WaitOnOptions} from 'wait-on';
 import {ProcessList, ProcessManager} from './process-manager';
 import {BboxDiscovery} from './bbox-discovery';
+import { Ui } from './ui';
 
 export type Cli = Commander.Command;
 
 export interface RunnableFnParams {
+  bbox: Bbox;
+  ctx: Ctx;
   module: Module;
 }
 
@@ -33,13 +36,21 @@ export interface SubServiceSpec {
   containerPort?: number;
 }
 
+export class ServiceDocker {
+  volumes: DockerVolumes;
+}
+
 export interface ServiceSpec {
   name: string;
   port?: number;
+  // move to docker prop?
   containerPort?: number;
   start?: string;
   subServices?: {
     [key: string]: SubServiceSpec
+  }
+  docker?: {
+    volumes?: DockerVolumesSpec
   }
   env: EnvValuesSpec,
   provideEnvValues?: {[key: string]: string},
@@ -64,18 +75,22 @@ export interface ModuleState {
   configuredOnce: string[];
 }
 
-export type RunSpec = RunnableSpec;
+export type ProcessSpec = Runnable;
 
-export type RunOnceSpec = {[key: string]: RunnableSpec};
+export type RunOnceSpec = {[key: string]: ProcessSpec};
 
 export class BuildSpec {
   once: RunOnceSpec;
-  run: RunnableSpec;
+  run: ProcessSpec;
 }
 
 export class ConfigureSpec {
   once?: RunOnceSpec;
-  run?: RunnableSpec;
+  run?: ProcessSpec;
+}
+
+export class DockerVolumesSpec {
+  [key: string]: string | {containerPath: string, hostPath: string}
 }
 
 export class ModuleSpec {
@@ -83,9 +98,7 @@ export class ModuleSpec {
   docker?: {
     image?: string;
     file?: string;
-    volumes?: {
-      [key: string]: string
-    }
+    volumes?: DockerVolumesSpec
   };
   services: {[key: string]: ServiceSpec};
   runtime?: Runtime;
@@ -111,12 +124,25 @@ export class Service {
   name: string;
   spec: ServiceSpec;
   state: ServiceState;
+  docker?: ServiceDocker;
+}
+
+export type DockerVolumes = {
+  [name: string]: {
+    containerPath: string;
+    hostPath: string;
+  }
+}
+
+export class ModuleDocker {
+  volumes: DockerVolumes;
 }
 
 export class Module {
   root: boolean;
   name: string;
   spec: ModuleSpec;
+  docker?: ModuleDocker;
   bboxPath: string;
   bboxModule?: BboxModule;
   absolutePath: string;
@@ -143,7 +169,7 @@ export class RunCommandParams {
   @jf.string().required()
   module: string;
   @jf.string().required()
-  runnable: string;
+  cmd: string;
 }
 
 export class ConfigureParams {
@@ -199,7 +225,8 @@ export class Bbox {
 
   constructor(
     private fileManager: BboxDiscovery,
-    private processManager: ProcessManager
+    private processManager: ProcessManager,
+    private ui: Ui
   ) {
   }
 
@@ -231,14 +258,14 @@ export class Bbox {
   @validateParams()
   async configure(params: ConfigureParams, ctx: Ctx) {
     const module = this.getModule(params.module);
-    this.stageConfigureIfNeeded(module, ctx);
+    this.stageConfigure(module, ctx);
     await this.executeStaged(ctx);
   }
 
   async run(params: RunCommandParams, ctx: Ctx) {
     const module = this.getModule(params.module);
     try {
-      await this.runInteractive(module, params.runnable, ctx);
+      await this.runInteractive(module, params.cmd, ctx);
     } catch (e) {
       console.error(e); // XXX
       throw e;
@@ -256,7 +283,9 @@ export class Bbox {
   async build(params: ServiceCommandParams, ctx: Ctx) {
     const module = this.getModule(params.services[0]);
 
+    await this.stageConfigureIfNeeded(module, ctx);
     await this.stageBuild(module, ctx);
+
     await this.executeStaged(ctx);
   }
 
@@ -311,10 +340,10 @@ export class Bbox {
         if (typeof state.processStatus !== 'undefined') {
           switch (state.processStatus) {
             case ServiceProcessStatus.Online:
-              await this.processManager.startAndWait(service, ctx);
+              await this.processManager.startAndWaitUntilStarted(service, ctx);
               break;
             case ServiceProcessStatus.Offline:
-              await this.processManager.stopAndWait(service, ctx);
+              await this.processManager.stopAndWaitUntilStopped(service, ctx);
               break;
             default:
               throw new Error(`Unhandled ServiceProcessStatus ${state.processStatus}`);
@@ -354,7 +383,7 @@ export class Bbox {
     for (const module of modules) {
       for (const service of Object.values(module.services)) {
         const process = await this.processManager.findServiceProcess(service, ctx);
-        console.log(`${service.name} [${module.name}]: ${process?.status ?? 'Unknown'}, built: ${module.state.built}, runtimes: ${module.availableRuntimes}`); // XXX
+        console.log(`${service.name} [${module.name}]: ${process?.status ?? 'Unknown'}, configured: ${module.state.configured}, built: ${module.state.built}, runtimes: ${module.availableRuntimes}`); // XXX
       }
     }
   }
@@ -370,9 +399,46 @@ export class Bbox {
     // }
     this.stageConfigureIfNeeded(service.module, ctx);
     this.stageBuildIfNeeded(service.module, ctx);
-    //await this.stageMigrationsIfNeeded(service.module, ctx);
+
+    const values = this.getValuePlaceholders(service.spec.start);
+    for (const value of values) {
+      this.stageValueAvailability(value, ctx);
+    }
 
     this.stageServiceState(service, {processStatus: ServiceProcessStatus.Online}, ctx);
+  }
+
+  private stageValueAvailability(value: string, ctx: Ctx) {
+    const [serviceName, providerName] = value.split('.');
+    const service = this.getService(serviceName);
+    const serviceSpec = service.spec;
+
+    if (serviceSpec.values && serviceSpec.values[providerName]) {
+      return;
+    }
+
+    if (!serviceSpec.valueProviders || !serviceSpec.valueProviders[providerName]) {
+      throw new Error(`Value provider ${providerName} not found`);
+    }
+
+    // TODO
+    this.stageServiceState(service, {processStatus: ServiceProcessStatus.Online}, ctx);
+  }
+
+  private getValuePlaceholders(str) {
+    const regex = /\[(.*?)\]/gm;
+    let m;
+
+    const ret = [];
+    while ((m = regex.exec(str)) !== null) {
+      // This is necessary to avoid infinite loops with zero-width matches
+      if (m.index === regex.lastIndex) {
+        regex.lastIndex++;
+      }
+      ret.push(m[1]);
+    }
+
+    return ret;
   }
 
   async stageStartDependenciesIfNeeded(service: Service, ctx: Ctx) {
@@ -428,15 +494,15 @@ export class Bbox {
   private async runBuild(module: Module, ctx: Ctx) {
     const spec = module.spec.build;
     if (!spec) {
-      throw new Error('Module has not build action specified');
-    }
-
-    if (spec.run) {
-      await this.runInteractive(module, spec.run, ctx);
+      throw new Error('Module has not `build` specified');
     }
 
     if (spec.once) {
       await this.runOnce(module, spec.once, module.state.builtOnce, ctx);
+    }
+
+    if (spec.run) {
+      await this.runInteractive(module, spec.run, ctx);
     }
 
     module.state.built = true;
@@ -445,7 +511,7 @@ export class Bbox {
 
   private async runConfigure(module: Module, ctx: Ctx) {
     if (!module.spec.configure) {
-      throw new Error('Module has not build action specified');
+      throw new Error('Module has not `configure` specified');
     }
 
     if (module.spec.configure.run) {
@@ -495,12 +561,24 @@ export class Bbox {
 
     if (typeof runnable === 'function') {
       await runnable({
+        bbox: this,
+        ctx: ctx,
         module: module
       });
       return;
     }
 
-    await this.processManager.runInteractive(module, runnable, {}, ctx);
+    try {
+      await this.processManager.runInteractive(module, runnable, {}, ctx);
+    } catch (e) {
+      this.ui.print(`**There was an error when running:** \`${runnable}\``);
+      const ret = await this.ui.prompt<{continue: boolean}>([
+        {type: 'confirm', name: 'continue', default: false, message: 'Continue?'}
+      ]);
+      if (!ret.continue) {
+        throw e;
+      }
+    }
   }
 
   private stageConfigureIfNeeded(module: Module, ctx: Ctx) {
@@ -517,6 +595,10 @@ export class Bbox {
       return;
     }
 
+    this.stageConfigure(module, ctx);
+  }
+
+  private stageConfigure(module: Module, ctx: Ctx) {
     module.state.configured = false;
     this.stageModuleState(module, {configured: true}, ctx);
   }

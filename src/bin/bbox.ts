@@ -3,6 +3,7 @@ import {Bbox, ServiceCommandParams, Ctx} from '../bbox';
 import * as process from 'process';
 import { ProcessManager } from '../process-manager';
 import {BboxDiscovery} from '../bbox-discovery';
+import { Ui } from '../ui';
 
 async function createBox() {
   const fileManager = new BboxDiscovery();
@@ -16,7 +17,7 @@ async function createBox() {
     },
     stagedStates: []
   }
-  const bbox = new Bbox(fileManager, processManager);
+  const bbox = new Bbox(fileManager, processManager, new Ui());
   await bbox.init(ctx);
   return {
     bbox,
@@ -114,7 +115,7 @@ function runCommand(bbox: Bbox, ctx: Ctx, handler, paramsHandler) {
     .action(runCommand(bbox, ctx, bbox.run, (module, command: Command, runnable) => {
       return {
         module,
-        runnable: runnable.join(' ')
+        cmd: runnable.join(' ')
       }
     }))
 

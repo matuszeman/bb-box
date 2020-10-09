@@ -1,7 +1,16 @@
 import * as fs from 'fs';
 import * as nodePath from 'path';
 import * as globby from 'globby';
-import {BboxModule, Module, ModuleSpec, ModuleState, Runtime, Service, ServiceProcessStatus} from './bbox';
+import {
+  BboxModule, DockerVolumes,
+  DockerVolumesSpec,
+  Module,
+  ModuleSpec,
+  ModuleState,
+  Runtime,
+  Service,
+  ServiceProcessStatus
+} from './bbox';
 
 export class BboxDiscovery {
   private bboxFile = 'bbox.js'
@@ -89,22 +98,22 @@ export class BboxDiscovery {
   }
 
   private createModule(rootPath: string, absolutePath: string, moduleSpec: ModuleSpec, bboxPath: string, cwdPath: string): Module {
-    if (!fs.existsSync(bboxPath)) {
-      fs.mkdirSync(bboxPath, {recursive: true});
-    }
+    this.mkdir(bboxPath);
 
     const stateFilePath = `${bboxPath}/state.json`;
-    if (!fs.existsSync(stateFilePath)) {
-      fs.writeFileSync(stateFilePath, '{}');
-    }
+    this.mkfile(stateFilePath, '{}');
 
     const bboxModuleFile = `${absolutePath}/bbox.module.js`;
     const bboxModule = this.loadJsFileIfExists<BboxModule>(bboxModuleFile);
 
     const statePath = `${bboxPath}/state`;
-    if (!fs.existsSync(statePath)) {
-      fs.mkdirSync(statePath, {recursive: true});
-    }
+    this.mkdir(statePath);
+
+    const path = absolutePath.replace(rootPath, '').slice(1);
+
+    this.mkdir(`${statePath}/docker-volumes`);
+    const relDockerVolumesPath = `${path}/.bbox/state/docker-volumes`;
+
     const moduleStateFile = this.loadJsFile<Partial<ModuleState>>(stateFilePath);
     // TODO types
     const state: ModuleState = Object.assign<ModuleState, Partial<ModuleState>>({
@@ -114,7 +123,6 @@ export class BboxDiscovery {
       configuredOnce: []
     }, moduleStateFile);
 
-    const path = absolutePath.replace(rootPath, '').slice(1);
     const module: Module = {
       root: rootPath === absolutePath,
       cwdAbsolutePath: cwdPath,
@@ -132,6 +140,12 @@ export class BboxDiscovery {
 
     if (moduleSpec.docker) {
       module.availableRuntimes.push(Runtime.Docker);
+
+      const volumes = this.mkdirDockerVolumes(moduleSpec.docker.volumes, relDockerVolumesPath, path);
+
+      module.docker = {
+        volumes
+      };
     }
 
     // Services
@@ -147,6 +161,7 @@ export class BboxDiscovery {
         if (serviceSpec.start && !module.availableRuntimes.includes(Runtime.Local)) {
           module.availableRuntimes.push(Runtime.Local);
         }
+
         const service: Service = {
           module,
           name: serviceSpec.name,
@@ -155,6 +170,15 @@ export class BboxDiscovery {
             processStatus: ServiceProcessStatus.Unknown
           }
         };
+
+        if (serviceSpec.docker) {
+          // make sure to pre-create docker volumes otherwise they'll be create with root permissions by docker-compose
+          const volumes = this.mkdirDockerVolumes(serviceSpec.docker.volumes, relDockerVolumesPath, path);
+          service.docker = {
+            volumes
+          }
+        }
+
         module.services[serviceName] = service;
       }
     }
@@ -185,5 +209,52 @@ export class BboxDiscovery {
       file = file.default;
     }
     return file;
+  }
+
+  private mkdir(path) {
+    if (!fs.existsSync(path)) {
+      fs.mkdirSync(path, {recursive: true});
+    }
+  }
+
+  /**
+   * Make sure to pre-create docker volumes otherwise they'll be create with root permissions by docker-compose
+   */
+  private mkdirDockerVolumes(volumesSpec: DockerVolumesSpec | undefined, volumesStatePath: string, relModulePath: string): DockerVolumes {
+    if (!volumesSpec) {
+      return {};
+    }
+
+    const oldUmask = process.umask(0);
+
+    const volumes: DockerVolumes = {};
+    for (const volumeName in volumesSpec) {
+      let volumeSpec = volumesSpec[volumeName];
+      let hostPath = `${volumesStatePath}/${volumeName}`;
+      let containerPath;
+      if (typeof volumeSpec === 'string') {
+        containerPath = volumeSpec;
+      } else {
+        ({containerPath, hostPath} = volumeSpec);
+        hostPath = `${relModulePath}/${hostPath}`;
+      }
+
+      volumes[volumeName] = {
+        containerPath,
+        hostPath: `./${hostPath}` // must be prefixed with ./ otherwise it's taken as named volume
+      };
+
+      this.mkdir(hostPath);
+    }
+
+    process.umask(oldUmask);
+
+    return volumes;
+  }
+
+  private mkfile(path, content) {
+    if (!fs.existsSync(path)) {
+      fs.writeFileSync(path, content);
+    }
   }
 }
