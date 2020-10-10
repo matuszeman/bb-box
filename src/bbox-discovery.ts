@@ -120,7 +120,9 @@ export class BboxDiscovery {
       built: false,
       builtOnce: [],
       configured: false,
-      configuredOnce: []
+      configuredOnce: [],
+      initialized: false,
+      initializedOnce: []
     }, moduleStateFile);
 
     const module: Module = {

@@ -111,6 +111,14 @@ function runCommand(bbox: Bbox, ctx: Ctx, handler, paramsHandler) {
       }
     }))
 
+  program.command('initialize <module>')
+    .alias('init')
+    .action(runCommand(bbox, ctx, bbox.initialize, (module) => {
+      return {
+        module
+      }
+    }))
+
   program.command('run <module>')
     .action(runCommand(bbox, ctx, bbox.run, (module, command: Command, runnable) => {
       return {

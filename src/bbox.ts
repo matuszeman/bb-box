@@ -9,6 +9,7 @@ import {WaitOnOptions} from 'wait-on';
 import {ProcessList, ProcessManager} from './process-manager';
 import {BboxDiscovery} from './bbox-discovery';
 import { Ui } from './ui';
+import * as shelljs from 'shelljs';
 
 export type Cli = Commander.Command;
 
@@ -73,6 +74,8 @@ export interface ModuleState {
   builtOnce: string[];
   configured: boolean;
   configuredOnce: string[];
+  initialized: boolean;
+  initializedOnce: string[];
 }
 
 export type ProcessSpec = Runnable;
@@ -89,6 +92,11 @@ export class ConfigureSpec {
   run?: ProcessSpec;
 }
 
+export class InitializeSpec {
+  once: RunOnceSpec;
+  run: ProcessSpec;
+}
+
 export class DockerVolumesSpec {
   [key: string]: string | {containerPath: string, hostPath: string}
 }
@@ -103,6 +111,7 @@ export class ModuleSpec {
   services: {[key: string]: ServiceSpec};
   runtime?: Runtime;
   configure?: ConfigureSpec;
+  initialize?: InitializeSpec;
   build?: BuildSpec;
   //migrations?: {[key: string]: RunnableSpec};
   env?: {[key: string]: any};
@@ -173,6 +182,11 @@ export class RunCommandParams {
 }
 
 export class ConfigureParams {
+  @jf.string().required()
+  module?: string;
+}
+
+export class InitializeParams {
   @jf.string().required()
   module?: string;
 }
@@ -262,6 +276,13 @@ export class Bbox {
     await this.executeStaged(ctx);
   }
 
+  @validateParams()
+  async initialize(params: InitializeParams, ctx: Ctx) {
+    const module = this.getModule(params.module);
+    this.stageInitialize(module, ctx);
+    await this.executeStaged(ctx);
+  }
+
   async run(params: RunCommandParams, ctx: Ctx) {
     const module = this.getModule(params.module);
     try {
@@ -283,7 +304,6 @@ export class Bbox {
   async build(params: ServiceCommandParams, ctx: Ctx) {
     const module = this.getModule(params.services[0]);
 
-    await this.stageConfigureIfNeeded(module, ctx);
     await this.stageBuild(module, ctx);
 
     await this.executeStaged(ctx);
@@ -330,6 +350,12 @@ export class Bbox {
         if (typeof state.configured !== 'undefined') {
           if (state.configured && !module.state.configured) {
             await this.runConfigure(module, ctx);
+          }
+        }
+
+        if (typeof state.initialized !== 'undefined') {
+          if (state.initialized && !module.state.initialized) {
+            await this.runInitialize(module, ctx);
           }
         }
       }
@@ -397,8 +423,7 @@ export class Bbox {
     //   const envValues = await this.provideValues(service.spec.provideEnvValues, ctx);
     //   Object.assign(service.spec.env, envValues);
     // }
-    this.stageConfigureIfNeeded(service.module, ctx);
-    this.stageBuildIfNeeded(service.module, ctx);
+    this.stageInitializeIfNeeded(service.module, ctx);
 
     const values = this.getValuePlaceholders(service.spec.start);
     for (const value of values) {
@@ -462,9 +487,110 @@ export class Bbox {
     return ret;
   }
 
-  private async stageBuild(module: Module, ctx: Ctx) {
+  private stageConfigure(module: Module, ctx: Ctx) {
+    module.state.configured = false;
+    this.stageModuleState(module, {configured: true}, ctx);
+  }
+
+  private stageConfigureIfNeeded(module: Module, ctx: Ctx) {
+    if (!module.spec.configure) {
+      return;
+    }
+
+    let notAppliedMigrations = [];
+    if (module.spec.configure.once) {
+      notAppliedMigrations = this.getNotAppliedMigrations(module.spec.configure.once, module.state.configuredOnce);
+    }
+
+    if (module.state.configured && notAppliedMigrations.length === 0) {
+      return;
+    }
+
+    this.stageConfigure(module, ctx);
+  }
+
+  private async runConfigure(module: Module, ctx: Ctx) {
+    if (!module.spec.configure) {
+      throw new Error('Module has not `configure` specified');
+    }
+
+    if (module.spec.configure.run) {
+      await this.runInteractive(module, module.spec.configure.run, ctx);
+    }
+
+    if (module.spec.configure.once) {
+      await this.runOnce(module, module.spec.configure.once, module.state.configuredOnce, ctx);
+    }
+
+    module.state.configured = true;
+    this.fileManager.saveModuleState(module);
+  }
+
+  private stageInitialize(module: Module, ctx: Ctx) {
+    this.stageConfigureIfNeeded(module, ctx);
+
+    module.state.initialized = false;
+    this.stageModuleState(module, {initialized: true}, ctx);
+  }
+
+  private stageInitializeIfNeeded(module: Module, ctx: Ctx) {
+    this.stageBuildIfNeeded(module, ctx);
+
+    if (module.state.initialized || !module.spec.initialize) {
+      return;
+    }
+
+    this.stageModuleState(module, {initialized: true}, ctx);
+  }
+
+  private async runInitialize(module: Module, ctx: Ctx) {
+    if (!module.spec.initialize) {
+      throw new Error('Module has not `configure` specified');
+    }
+
+    if (module.spec.initialize.run) {
+      await this.runInteractive(module, module.spec.initialize.run, ctx);
+    }
+
+    if (module.spec.initialize.once) {
+      await this.runOnce(module, module.spec.initialize.once, module.state.initializedOnce, ctx);
+    }
+
+    module.state.initialized = true;
+    this.fileManager.saveModuleState(module);
+  }
+
+  private stageBuild(module: Module, ctx: Ctx) {
     module.state.built = false;
     this.stageModuleState(module, {built: true}, ctx);
+  }
+
+  private stageBuildIfNeeded(module: Module, ctx: Ctx) {
+    this.stageConfigureIfNeeded(module, ctx);
+
+    if (module.state.built || !module.spec.build) {
+      return;
+    }
+
+    this.stageBuild(module, ctx);
+  }
+
+  private async runBuild(module: Module, ctx: Ctx) {
+    const spec = module.spec.build;
+    if (!spec) {
+      throw new Error('Module has not `build` specified');
+    }
+
+    if (spec.once) {
+      await this.runOnce(module, spec.once, module.state.builtOnce, ctx);
+    }
+
+    if (spec.run) {
+      await this.runInteractive(module, spec.run, ctx);
+    }
+
+    module.state.built = true;
+    this.fileManager.saveModuleState(module);
   }
 
   private stageServiceState(service: Service, state: Partial<ServiceState>, ctx: Ctx) {
@@ -489,41 +615,6 @@ export class Bbox {
     }
 
     ctx.stagedStates.push({module: {module, state}});
-  }
-
-  private async runBuild(module: Module, ctx: Ctx) {
-    const spec = module.spec.build;
-    if (!spec) {
-      throw new Error('Module has not `build` specified');
-    }
-
-    if (spec.once) {
-      await this.runOnce(module, spec.once, module.state.builtOnce, ctx);
-    }
-
-    if (spec.run) {
-      await this.runInteractive(module, spec.run, ctx);
-    }
-
-    module.state.built = true;
-    this.fileManager.saveModuleState(module);
-  }
-
-  private async runConfigure(module: Module, ctx: Ctx) {
-    if (!module.spec.configure) {
-      throw new Error('Module has not `configure` specified');
-    }
-
-    if (module.spec.configure.run) {
-      await this.runInteractive(module, module.spec.configure.run, ctx);
-    }
-
-    if (module.spec.configure.once) {
-      await this.runOnce(module, module.spec.configure.once, module.state.configuredOnce, ctx);
-    }
-
-    module.state.configured = true;
-    this.fileManager.saveModuleState(module);
   }
 
   private async runOnce(module: Module, runOnceSpec: RunOnceSpec, state: string[], ctx: Ctx): Promise<{state?: Partial<ModuleState>}> {
@@ -559,18 +650,24 @@ export class Bbox {
       return;
     }
 
-    if (typeof runnable === 'function') {
-      await runnable({
-        bbox: this,
-        ctx: ctx,
-        module: module
-      });
-      return;
-    }
-
     try {
+      if (typeof runnable === 'function') {
+        shelljs.pushd(module.cwdAbsolutePath);
+        try {
+          await runnable({
+            bbox: this,
+            ctx: ctx,
+            module: module
+          });
+        } finally {
+          shelljs.popd();
+        }
+        return;
+      }
+
       await this.processManager.runInteractive(module, runnable, {}, ctx);
     } catch (e) {
+      console.error(e); // XXX
       this.ui.print(`**There was an error when running:** \`${runnable}\``);
       const ret = await this.ui.prompt<{continue: boolean}>([
         {type: 'confirm', name: 'continue', default: false, message: 'Continue?'}
@@ -579,36 +676,6 @@ export class Bbox {
         throw e;
       }
     }
-  }
-
-  private stageConfigureIfNeeded(module: Module, ctx: Ctx) {
-    if (!module.spec.configure) {
-      return;
-    }
-
-    let notAppliedMigrations = [];
-    if (module.spec.configure.once) {
-      notAppliedMigrations = this.getNotAppliedMigrations(module.spec.configure.once, module.state.configuredOnce);
-    }
-
-    if (module.state.configured && notAppliedMigrations.length === 0) {
-      return;
-    }
-
-    this.stageConfigure(module, ctx);
-  }
-
-  private stageConfigure(module: Module, ctx: Ctx) {
-    module.state.configured = false;
-    this.stageModuleState(module, {configured: true}, ctx);
-  }
-
-  private stageBuildIfNeeded(module: Module, ctx: Ctx) {
-    if (module.state.built || !module.spec.build) {
-      return;
-    }
-
-    this.stageModuleState(module, {built: true}, ctx);
   }
 
   // private async stageMigrationsIfNeeded(module: Module, ctx: Ctx) {
