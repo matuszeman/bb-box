@@ -420,7 +420,7 @@ export class Bbox {
         throw new Error(`Value provider ${providerName} not found`);
       }
 
-      this.stageBuildIfNeeded(service.module, ctx);
+      this.stageBuild(service.module, ctx);
       await this.executeStaged(ctx);
 
       return await this.processManager.run(service.module, serviceSpec.valueProviders[providerName], serviceSpec.env, ctx);
@@ -431,10 +431,19 @@ export class Bbox {
 
   @validateParams()
   async list(params: ListCommandParams, ctx: Ctx) {
+    let table = 'Service️| Module | State | Conf. | Built | Init | Runtime | Avail. runtimes\n' +
+                '------- | ------ | ----- | ----- | ----- | ---- | --------| ---------------\n';
     for (const service of this.services) {
       const status = await this.getServiceProcessStatus(service, ctx);
-      console.log(`${service.name} [${service.module.name}]: ${status}, configured: ${service.module.state.configured}, built: ${service.module.state.built}, runtimes: ${service.module.availableRuntimes}`); // XXX
+      table += `${service.name} | ${service.module.name} | ${status} | ${this.boolToEmoji(service.module.state.configured)}`
+        + ` | ${this.boolToEmoji(service.module.state.built)} | ${this.boolToEmoji(service.module.state.initialized)}`
+        + ` | ${service.module.runtime} | ${service.module.availableRuntimes.join(', ')}|\n`;
     }
+    this.ui.print(table);
+  }
+
+  private boolToEmoji(bool: boolean) {
+      return bool ? '✔' : ' ';
   }
 
   async shutdown() {
@@ -442,7 +451,7 @@ export class Bbox {
   }
 
   private stageStart(service: Service, ctx: Ctx) {
-    this.stageInitializeIfNeeded(service.module, ctx);
+    this.stageInitialize(service.module, ctx);
     this.stageDependenciesIfDefined(service.spec.dependencies, ctx);
     this.stageServiceState(service, {processStatus: ServiceProcessStatus.Online}, ctx);
   }
@@ -481,28 +490,6 @@ export class Bbox {
     return ret;
   }
 
-  stageRunMapSpec(runMapSpec: RunMapSpec, ctx: Ctx) {
-    for (const key in runMapSpec) {
-      const runSpec = runMapSpec[key];
-      if (runSpec.prompt) {
-        // TODO
-        //this.stagePrompt(runSpec.prompt);
-      }
-      this.stageDependenciesIfDefined(runSpec.dependencies, ctx);
-    }
-  }
-
-  stageDependenciesIfDefined(dependecies: DependenciesSpec | undefined, ctx: Ctx) {
-    if (!dependecies) {
-      return;
-    }
-
-    for (const dependencySpec of dependecies) {
-      const service = this.getService(dependencySpec.service);
-      this.stageStart(service, ctx);
-    }
-  }
-
   async provideValues(values: {[key: string]: string}, ctx) {
     const ret = {};
     for (const envName in values) {
@@ -512,28 +499,14 @@ export class Bbox {
   }
 
   private stageConfigure(module: Module, ctx: Ctx) {
-    this.stageRunMapSpec(module.spec.configure, ctx);
-
-    module.state.configured = false;
-    this.stageModuleState(module, {configured: true}, ctx);
-  }
-
-  private stageConfigureIfNeeded(module: Module, ctx: Ctx) {
-    if (!module.spec.configure) {
+    const notRanSteps = this.stageRunMapSpec(module.spec.configure, module.state.configureState, ctx);
+    if (!notRanSteps.length) {
+      module.state.configured = true;
       return;
     }
 
-    // TODO
-    // let notAppliedMigrations = [];
-    // if (module.spec.configure.once) {
-    //   notAppliedMigrations = this.getNotAppliedMigrations(module.spec.configure.once, module.state.configuredOnce);
-    // }
-    //
-    // if (module.state.configured && notAppliedMigrations.length === 0) {
-    //   return;
-    // }
-
-    this.stageConfigure(module, ctx);
+    module.state.configured = false;
+    this.stageModuleState(module, {configured: true}, ctx);
   }
 
   private async runConfigure(module: Module, ctx: Ctx) {
@@ -545,6 +518,108 @@ export class Bbox {
 
     module.state.configured = true;
     this.fileManager.saveModuleState(module);
+  }
+
+  private stageBuild(module: Module, ctx: Ctx) {
+    this.stageConfigure(module, ctx);
+
+    const notRanSteps = this.stageRunMapSpec(module.spec.build, module.state.buildState, ctx);
+    if (!notRanSteps.length) {
+      module.state.built = true;
+      return;
+    }
+
+    module.state.built = false;
+    this.stageModuleState(module, {built: true}, ctx);
+  }
+
+  private async runBuild(module: Module, ctx: Ctx) {
+    const spec = module.spec.build;
+    if (!spec) {
+      throw new Error('Module has not `build` specified');
+    }
+
+    await this.runRunSpec(module, module.spec.build, module.state.buildState, ctx);
+
+    module.state.built = true;
+    this.fileManager.saveModuleState(module);
+  }
+
+  private stageInitialize(module: Module, ctx: Ctx) {
+    this.stageBuild(module, ctx);
+
+    const notRanSteps = this.stageRunMapSpec(module.spec.initialize, module.state.initializeState, ctx);
+    if (!notRanSteps.length) {
+      module.state.initialized = true;
+      return;
+    }
+
+    module.state.initialized = false;
+    this.stageModuleState(module, {initialized: true}, ctx);
+  }
+
+  private async runInitialize(module: Module, ctx: Ctx) {
+    if (!module.spec.initialize) {
+      throw new Error('Module has not `configure` specified');
+    }
+
+    await this.runRunSpec(module, module.spec.initialize, module.state.initializeState, ctx);
+
+    module.state.initialized = true;
+    this.fileManager.saveModuleState(module);
+  }
+
+  private stageServiceState(service: Service, state: Partial<ServiceState>, ctx: Ctx) {
+    const states = ctx.stagedStates
+      .filter((staged) => staged.service && staged.service.service.name === service.name)
+      .map((s) => s.service.state);
+    const found = find(states, state);
+    if (found) {
+      return;
+    }
+
+    ctx.stagedStates.push({service: {service, state}});
+  }
+
+  private stageModuleState(module: Module, state: Partial<ModuleState>, ctx: Ctx) {
+    const states = ctx.stagedStates
+      .filter((staged) => staged.module && staged.module.module.name === module.name)
+      .map((s) => s.module.state);
+    const found = find(states, state);
+    if (found) {
+      return;
+    }
+
+    ctx.stagedStates.push({module: {module, state}});
+  }
+
+  stageRunMapSpec(runMapSpec: RunMapSpec | undefined, runStateMap: RunStateMap, ctx: Ctx) {
+    if (!runMapSpec) {
+      return [];
+    }
+
+    const notAppliedSteps = this.getNotAppliedSteps(runMapSpec, runStateMap)
+    for (const key of notAppliedSteps) {
+      const runSpec = runMapSpec[key];
+      if (runSpec.prompt) {
+        // TODO
+        //this.stagePrompt(runSpec.prompt);
+      }
+      this.stageDependenciesIfDefined(runSpec.dependencies, ctx);
+    }
+
+    return notAppliedSteps;
+  }
+
+  stageDependenciesIfDefined(dependecies: DependenciesSpec | undefined, ctx: Ctx) {
+    if (!dependecies) {
+      return;
+    }
+
+    for (const dependencySpec of dependecies) {
+      const service = this.getService(dependencySpec.service);
+      this.stageStart(service, ctx);
+    }
   }
 
   private async runRunSpec(module: Module, runMapSpec: RunMapSpec, runStateMap: RunStateMap, ctx: Ctx) {
@@ -587,89 +662,6 @@ export class Bbox {
     }
   }
 
-  private stageInitialize(module: Module, ctx: Ctx) {
-    this.stageConfigureIfNeeded(module, ctx);
-
-    this.stageRunMapSpec(module.spec.initialize, ctx);
-
-    module.state.initialized = false;
-    this.stageModuleState(module, {initialized: true}, ctx);
-  }
-
-  private stageInitializeIfNeeded(module: Module, ctx: Ctx) {
-    this.stageBuildIfNeeded(module, ctx);
-
-    if (module.state.initialized || !module.spec.initialize) {
-      return;
-    }
-
-    this.stageInitialize(module, ctx);
-  }
-
-  private async runInitialize(module: Module, ctx: Ctx) {
-    if (!module.spec.initialize) {
-      throw new Error('Module has not `configure` specified');
-    }
-
-    await this.runRunSpec(module, module.spec.initialize, module.state.initializeState, ctx);
-
-    module.state.initialized = true;
-    this.fileManager.saveModuleState(module);
-  }
-
-  private stageBuild(module: Module, ctx: Ctx) {
-    this.stageRunMapSpec(module.spec.build, ctx);
-
-    module.state.built = false;
-    this.stageModuleState(module, {built: true}, ctx);
-  }
-
-  private stageBuildIfNeeded(module: Module, ctx: Ctx) {
-    this.stageConfigureIfNeeded(module, ctx);
-
-    if (module.state.built || !module.spec.build) {
-      return;
-    }
-
-    this.stageBuild(module, ctx);
-  }
-
-  private async runBuild(module: Module, ctx: Ctx) {
-    const spec = module.spec.build;
-    if (!spec) {
-      throw new Error('Module has not `build` specified');
-    }
-
-    await this.runRunSpec(module, module.spec.build, module.state.buildState, ctx);
-
-    module.state.built = true;
-    this.fileManager.saveModuleState(module);
-  }
-
-  private stageServiceState(service: Service, state: Partial<ServiceState>, ctx: Ctx) {
-    const states = ctx.stagedStates
-      .filter((staged) => staged.service && staged.service.service.name === service.name)
-      .map((s) => s.service.state);
-    const found = find(states, state);
-    if (found) {
-      return;
-    }
-
-    ctx.stagedStates.push({service: {service, state}});
-  }
-
-  private stageModuleState(module: Module, state: Partial<ModuleState>, ctx: Ctx) {
-    const states = ctx.stagedStates
-      .filter((staged) => staged.module && staged.module.module.name === module.name)
-      .map((s) => s.module.state);
-    const found = find(states, state);
-    if (found) {
-      return;
-    }
-
-    ctx.stagedStates.push({module: {module, state}});
-  }
-
   private async runInteractive(module: Module, runnable: RunnableSpec, env: EnvValuesSpec, ctx: Ctx) {
     if (Array.isArray(runnable)) {
       for (const run of runnable) {
@@ -702,20 +694,20 @@ export class Bbox {
       await this.processManager.runInteractive(module, runnable, env, ctx);
     } catch (e) {
       this.ui.print(`**Error when running:** \`${runnable}\``);
-      const ret = await this.ui.prompt<{action: 'c' | 'e' | 'r'}>({
+      const ret = await this.ui.prompt<{action: 's' | 'c' | 'r'}>({
         questions: [
           {
-            type: 'expand', name: 'action', default: 'c', message: 'Continue, re-run or quit?',
+            type: 'expand', name: 'action', default: 'r', message: 'Re-run, skip, cancel?',
             choices: [
-              {name: 'Continue', value: 'c', key: 'c'},
               {name: 'Re-run', value: 'r', key: 'r'},
-              {name: 'Quit', value: 'q', key: 'q'}
+              {name: 'Skip', value: 's', key: 's'},
+              {name: 'Cancel', value: 'c', key: 'c'}
             ]
           }
         ]
       });
       switch (ret.action) {
-        case 'c':
+        case 's':
           break;
         case 'r':
           await this.runInteractive(module, runnable, env, ctx);
@@ -725,19 +717,20 @@ export class Bbox {
     }
   }
 
-  // private async stageMigrationsIfNeeded(module: Module, ctx: Ctx) {
-  //   const migrations = this.getNotAppliedMigrations(module);
-  //   if (migrations.length === 0) {
-  //     return;
-  //   }
-  //
-  //   this.stageModuleState(module, {ranAllMigrations: true}, ctx);
-  // }
+  private getNotAppliedSteps(runMapSpec: RunMapSpec, runStateMap: RunStateMap) {
+    console.log(runMapSpec); // XXX
+    const orderedKeys = Object.keys(runMapSpec).sort();
 
-  private getNotAppliedMigrations(current: RunOnceSpec, ran: string[]) {
-    const migrationIds = Object.keys(current).sort();
-    const diff = difference(migrationIds, ran);
-    return diff;
+    const ret = [];
+    for (const key of orderedKeys) {
+      const runSpec = runMapSpec[key];
+      let runState: RunState = runStateMap[key] ?? {};
+      if (runSpec.once && runState.lastRanAt) {
+        continue;
+      }
+      ret.push(key);
+    }
+    return ret;
   }
 
   getModule(name: string) {
