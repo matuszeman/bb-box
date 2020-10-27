@@ -6,8 +6,8 @@ import * as YAML from 'yamljs';
 export default {
   name: 'bbox-proxy',
   configure: {
-    run: [
-      async (params: RunnableFnParams) => {
+    'config': {
+      run: async function bboxProxyConfigure(params: RunnableFnParams) {
         const {bbox, ctx} = params;
         const proxyService = await bbox.getService('bbox-proxy');
 
@@ -138,7 +138,7 @@ export default {
         const yaml = YAML.stringify(overwrite, 4, 2);
         fs.writeFileSync(ctx.projectOpts.dockerComposePath, yaml);
       }
-    ]
+    }
   },
   services: {
     'bbox-proxy': {

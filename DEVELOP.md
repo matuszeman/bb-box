@@ -11,8 +11,12 @@ https://github.com/qoomon/docker-host
 
 # Ideas
 
+## CLI
+https://github.com/f/omelette
+https://github.com/enquirer/enquirer#-custom-prompts
+
 ## Reverse proxy
-https://github.com/OptimalBits/redbird
+[done] https://github.com/OptimalBits/redbird
 
 ## Parallel operations
 

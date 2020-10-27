@@ -6,7 +6,7 @@ import {
   DockerVolumesSpec,
   Module,
   ModuleSpec,
-  ModuleState,
+  ModuleState, RunStateMap,
   Runtime,
   Service,
   ServiceProcessStatus
@@ -17,9 +17,7 @@ export class BboxDiscovery {
 
   private bboxFilesGlob = [
     this.bboxFile,
-    `*/${this.bboxFile}`,
-    // 'bbox.config.js',
-    // '*/bbox.config.js',
+    `*/${this.bboxFile}`
   ];
 
   discoverRootPath(currentPath: string): string {
@@ -118,11 +116,11 @@ export class BboxDiscovery {
     // TODO types
     const state: ModuleState = Object.assign<ModuleState, Partial<ModuleState>>({
       built: false,
-      builtOnce: [],
+      buildState: {},
       configured: false,
-      configuredOnce: [],
+      configureState: {},
       initialized: false,
-      initializedOnce: []
+      initializeState: {}
     }, moduleStateFile);
 
     const module: Module = {

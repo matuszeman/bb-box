@@ -24,6 +24,7 @@
     "globby": "^11.0.1",
     "http-proxy": "^1.18.1",
     "inquirer": "^7.3.3",
+    "inquirer-command-prompt": "0.0.29",
     "ip": "^1.1.5",
     "joi": "^11.0.2",
     "joiful": "^2.0.1",

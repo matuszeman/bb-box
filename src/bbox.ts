@@ -1,17 +1,14 @@
 import 'source-map-support/register';
 import 'reflect-metadata';
-
-import * as Commander from 'commander';
-import { difference, find } from 'lodash';
+import {difference, find} from 'lodash';
 import * as jf from 'joiful';
 import {PrettyJoi} from './pretty-joi';
 import {WaitOnOptions} from 'wait-on';
-import {ProcessList, ProcessManager} from './process-manager';
+import {ProcessList, ProcessManager, ProcessStatus} from './process-manager';
 import {BboxDiscovery} from './bbox-discovery';
-import { Ui } from './ui';
+import {PromptParams, Ui} from './ui';
 import * as shelljs from 'shelljs';
-
-export type Cli = Commander.Command;
+import {Cli} from './cli';
 
 export interface RunnableFnParams {
   bbox: Bbox;
@@ -22,7 +19,7 @@ export interface RunnableFnParams {
 export type RunnableFn = (params: RunnableFnParams) => Promise<any>;
 export type Runnable = string | RunnableFn;
 export type RunnableSpec = Runnable | Runnable[];
-export type DependencySpec = string;
+export type DependencySpec = {service: string, state: string};
 export type EnvValuesSpec = {[key: string]: any};
 
 export enum ServiceProcessStatus {
@@ -47,6 +44,13 @@ export interface ServiceSpec {
   // move to docker prop?
   containerPort?: number;
   start?: string;
+  /**
+   * https://pm2.keymetrics.io/docs/usage/pm2-api/#programmatic-api
+   */
+  pm2Options?: {
+    minUptime?: number
+    // ...
+  },
   subServices?: {
     [key: string]: SubServiceSpec
   }
@@ -55,7 +59,7 @@ export interface ServiceSpec {
   }
   env: EnvValuesSpec,
   provideEnvValues?: {[key: string]: string},
-  dependencies?: DependencySpec[],
+  dependencies?: DependenciesSpec,
   healthCheck?: {
     // https://www.npmjs.com/package/wait-on#nodejs-api-usage
     waitOn: WaitOnOptions
@@ -69,33 +73,47 @@ export enum Runtime {
   Docker = 'Docker'
 }
 
+export class RunState {
+  lastRanAt?: string;
+  prompt?: {[key: string]: any};
+}
+
+export class RunStateMap {
+  [key: string]: RunState;
+}
+
 export interface ModuleState {
   built: boolean;
-  builtOnce: string[];
+  buildState: RunStateMap;
   configured: boolean;
-  configuredOnce: string[];
+  configureState: RunStateMap;
   initialized: boolean;
-  initializedOnce: string[];
+  initializeState: RunStateMap;
 }
 
 export type ProcessSpec = Runnable;
 
 export type RunOnceSpec = {[key: string]: ProcessSpec};
 
-export class BuildSpec {
-  once: RunOnceSpec;
-  run: ProcessSpec;
+export type DependenciesSpec = DependencySpec[];
+
+export class RunSpec {
+  run: Runnable;
+  once?: boolean;
+  env?: EnvValuesSpec;
+  dependencies?: DependenciesSpec;
+  prompt?: PromptParams<any>;
 }
 
-export class ConfigureSpec {
-  once?: RunOnceSpec;
-  run?: ProcessSpec;
+export class RunMapSpec {
+  [key: string]: RunSpec;
 }
 
-export class InitializeSpec {
-  once: RunOnceSpec;
-  run: ProcessSpec;
-}
+export class BuildSpec extends RunMapSpec {}
+
+export class ConfigureSpec extends RunMapSpec {}
+
+export class InitializeSpec extends RunMapSpec {}
 
 export class DockerVolumesSpec {
   [key: string]: string | {containerPath: string, hostPath: string}
@@ -165,7 +183,6 @@ export class Module {
 
 export interface Ctx {
   projectOpts: ProjectOpts
-  processList: ProcessList,
   stagedStates: {service?: {service: Service, state: Partial<ServiceState>}, module?: {module: Module, state: Partial<ModuleState>}}[];
 }
 
@@ -192,8 +209,8 @@ export class InitializeParams {
 }
 
 export class ShellParams {
-  @jf.array().required().items(joi => joi.string()).min(1).max(1)
-  services: string[]
+  @jf.string().optional()
+  todo?: string;
 }
 
 export class ListCommandParams {
@@ -236,6 +253,7 @@ export class ProjectOpts {
 
 export class Bbox {
   private modules: Module[];
+  private services: Service[];
 
   constructor(
     private fileManager: BboxDiscovery,
@@ -246,12 +264,17 @@ export class Bbox {
 
   async init(ctx: Ctx) {
     this.modules = await this.loadAllModules(ctx);
+    this.services = [];
 
     for (const module of this.modules) {
       if (module.bboxModule?.onInit) {
         await module.bboxModule.onInit(this, ctx);
       }
+
+      this.services.push(...Object.values(module.services));
     }
+
+    await this.reloadServiceStates(ctx);
   }
 
   async onCliInit(cli: Cli, ctx: Ctx) {
@@ -286,18 +309,11 @@ export class Bbox {
   async run(params: RunCommandParams, ctx: Ctx) {
     const module = this.getModule(params.module);
     try {
-      await this.runInteractive(module, params.cmd, ctx);
+      await this.runInteractive(module, params.cmd, {}, ctx);
     } catch (e) {
       console.error(e); // XXX
       throw e;
     }
-  }
-
-  @validateParams()
-  async shell(params: ShellParams, ctx: Ctx) {
-    const module = this.getModule(params.services[0]);
-
-    //TODO
   }
 
   @validateParams()
@@ -313,9 +329,7 @@ export class Bbox {
   async start(params: ServiceCommandParams, ctx: Ctx) {
     const service = this.getService(params.services[0]);
 
-    await this.stageStartDependenciesIfNeeded(service, ctx);
-
-    await this.stageStart(service, ctx);
+    this.stageStart(service, ctx);
 
     await this.executeStaged(ctx);
   }
@@ -336,6 +350,16 @@ export class Bbox {
   }
 
   private async executeStaged(ctx: Ctx) {
+    // ctx.stagedStates.forEach((staged) => {
+    //   if (staged.service) {
+    //     console.log(staged.service); // XXX
+    //   }
+    //   if (staged.module) {
+    //     console.log(staged.module); // XXX
+    //   }
+    // })
+    // process.exit(0);
+
     for (const moduleOrService of ctx.stagedStates) {
       // TODO detect module or service
       if (moduleOrService.module) {
@@ -364,15 +388,17 @@ export class Bbox {
         const {service, state} = moduleOrService.service;
         console.log(`Service ${service.name}: Applying state`, state); // XXX
         if (typeof state.processStatus !== 'undefined') {
-          switch (state.processStatus) {
-            case ServiceProcessStatus.Online:
-              await this.processManager.startAndWaitUntilStarted(service, ctx);
-              break;
-            case ServiceProcessStatus.Offline:
-              await this.processManager.stopAndWaitUntilStopped(service, ctx);
-              break;
-            default:
-              throw new Error(`Unhandled ServiceProcessStatus ${state.processStatus}`);
+          if (service.state.processStatus !== state.processStatus) {
+            switch (state.processStatus) {
+              case ServiceProcessStatus.Online:
+                await this.processManager.startAndWaitUntilStarted(service, ctx);
+                break;
+              case ServiceProcessStatus.Offline:
+                await this.processManager.stopAndWaitUntilStopped(service, ctx);
+                break;
+              default:
+                throw new Error(`Unhandled ServiceProcessStatus ${state.processStatus}`);
+            }
           }
         }
       }
@@ -405,12 +431,9 @@ export class Bbox {
 
   @validateParams()
   async list(params: ListCommandParams, ctx: Ctx) {
-    const modules = this.getAllModules();
-    for (const module of modules) {
-      for (const service of Object.values(module.services)) {
-        const process = await this.processManager.findServiceProcess(service, ctx);
-        console.log(`${service.name} [${module.name}]: ${process?.status ?? 'Unknown'}, configured: ${module.state.configured}, built: ${module.state.built}, runtimes: ${module.availableRuntimes}`); // XXX
-      }
+    for (const service of this.services) {
+      const status = await this.getServiceProcessStatus(service, ctx);
+      console.log(`${service.name} [${service.module.name}]: ${status}, configured: ${service.module.state.configured}, built: ${service.module.state.built}, runtimes: ${service.module.availableRuntimes}`); // XXX
     }
   }
 
@@ -418,18 +441,9 @@ export class Bbox {
     await this.processManager.onShutdown();
   }
 
-  private async stageStart(service: Service, ctx: Ctx) {
-    // if (service.spec.provideEnvValues) {
-    //   const envValues = await this.provideValues(service.spec.provideEnvValues, ctx);
-    //   Object.assign(service.spec.env, envValues);
-    // }
+  private stageStart(service: Service, ctx: Ctx) {
     this.stageInitializeIfNeeded(service.module, ctx);
-
-    const values = this.getValuePlaceholders(service.spec.start);
-    for (const value of values) {
-      this.stageValueAvailability(value, ctx);
-    }
-
+    this.stageDependenciesIfDefined(service.spec.dependencies, ctx);
     this.stageServiceState(service, {processStatus: ServiceProcessStatus.Online}, ctx);
   }
 
@@ -447,7 +461,8 @@ export class Bbox {
     }
 
     // TODO
-    this.stageServiceState(service, {processStatus: ServiceProcessStatus.Online}, ctx);
+    throw new Error('N/I');
+    this.stageStart(service, ctx);
   }
 
   private getValuePlaceholders(str) {
@@ -466,16 +481,25 @@ export class Bbox {
     return ret;
   }
 
-  async stageStartDependenciesIfNeeded(service: Service, ctx: Ctx) {
-    const serviceSpec = service.spec;
-    if (!serviceSpec.dependencies) {
+  stageRunMapSpec(runMapSpec: RunMapSpec, ctx: Ctx) {
+    for (const key in runMapSpec) {
+      const runSpec = runMapSpec[key];
+      if (runSpec.prompt) {
+        // TODO
+        //this.stagePrompt(runSpec.prompt);
+      }
+      this.stageDependenciesIfDefined(runSpec.dependencies, ctx);
+    }
+  }
+
+  stageDependenciesIfDefined(dependecies: DependenciesSpec | undefined, ctx: Ctx) {
+    if (!dependecies) {
       return;
     }
 
-    for (const serviceDependencyName of serviceSpec.dependencies) {
-      const service = this.getService(serviceDependencyName);
-      await this.stageStartDependenciesIfNeeded(service, ctx);
-      await this.stageStart(service, ctx);
+    for (const dependencySpec of dependecies) {
+      const service = this.getService(dependencySpec.service);
+      this.stageStart(service, ctx);
     }
   }
 
@@ -488,6 +512,8 @@ export class Bbox {
   }
 
   private stageConfigure(module: Module, ctx: Ctx) {
+    this.stageRunMapSpec(module.spec.configure, ctx);
+
     module.state.configured = false;
     this.stageModuleState(module, {configured: true}, ctx);
   }
@@ -497,14 +523,15 @@ export class Bbox {
       return;
     }
 
-    let notAppliedMigrations = [];
-    if (module.spec.configure.once) {
-      notAppliedMigrations = this.getNotAppliedMigrations(module.spec.configure.once, module.state.configuredOnce);
-    }
-
-    if (module.state.configured && notAppliedMigrations.length === 0) {
-      return;
-    }
+    // TODO
+    // let notAppliedMigrations = [];
+    // if (module.spec.configure.once) {
+    //   notAppliedMigrations = this.getNotAppliedMigrations(module.spec.configure.once, module.state.configuredOnce);
+    // }
+    //
+    // if (module.state.configured && notAppliedMigrations.length === 0) {
+    //   return;
+    // }
 
     this.stageConfigure(module, ctx);
   }
@@ -514,20 +541,56 @@ export class Bbox {
       throw new Error('Module has not `configure` specified');
     }
 
-    if (module.spec.configure.run) {
-      await this.runInteractive(module, module.spec.configure.run, ctx);
-    }
-
-    if (module.spec.configure.once) {
-      await this.runOnce(module, module.spec.configure.once, module.state.configuredOnce, ctx);
-    }
+    await this.runRunSpec(module, module.spec.configure, module.state.configureState, ctx);
 
     module.state.configured = true;
     this.fileManager.saveModuleState(module);
   }
 
+  private async runRunSpec(module: Module, runMapSpec: RunMapSpec, runStateMap: RunStateMap, ctx: Ctx) {
+    const orderedKeys = Object.keys(runMapSpec).sort();
+
+    for (const key of orderedKeys) {
+      const runSpec = runMapSpec[key];
+      let runState: RunState = runStateMap[key] ?? {};
+      if (runSpec.once && runState.lastRanAt) {
+        continue;
+      }
+      try {
+        runState.lastRanAt = new Date().toISOString();
+
+        const env = runSpec.env ?? {};
+        if (runSpec.prompt) {
+          const promptParams: PromptParams<any> = {
+            questions: runSpec.prompt.questions,
+            initialAnswers: runState.prompt
+          }
+          const prompt = await this.ui.prompt(promptParams);
+          env['bbox_prompt'] = JSON.stringify(prompt);
+          for (const question of runSpec.prompt.questions as ReadonlyArray<any>) {
+            if (question.env) {
+              env[question.env] = prompt[question.name];
+            }
+          }
+
+          runState.prompt = prompt;
+        }
+
+        await this.runInteractive(module, runSpec.run, env, ctx);
+
+        runStateMap[key] = runState;
+
+        this.fileManager.saveModuleState(module);
+      } catch (e) {
+        throw e;
+      }
+    }
+  }
+
   private stageInitialize(module: Module, ctx: Ctx) {
     this.stageConfigureIfNeeded(module, ctx);
+
+    this.stageRunMapSpec(module.spec.initialize, ctx);
 
     module.state.initialized = false;
     this.stageModuleState(module, {initialized: true}, ctx);
@@ -540,7 +603,7 @@ export class Bbox {
       return;
     }
 
-    this.stageModuleState(module, {initialized: true}, ctx);
+    this.stageInitialize(module, ctx);
   }
 
   private async runInitialize(module: Module, ctx: Ctx) {
@@ -548,19 +611,15 @@ export class Bbox {
       throw new Error('Module has not `configure` specified');
     }
 
-    if (module.spec.initialize.run) {
-      await this.runInteractive(module, module.spec.initialize.run, ctx);
-    }
-
-    if (module.spec.initialize.once) {
-      await this.runOnce(module, module.spec.initialize.once, module.state.initializedOnce, ctx);
-    }
+    await this.runRunSpec(module, module.spec.initialize, module.state.initializeState, ctx);
 
     module.state.initialized = true;
     this.fileManager.saveModuleState(module);
   }
 
   private stageBuild(module: Module, ctx: Ctx) {
+    this.stageRunMapSpec(module.spec.build, ctx);
+
     module.state.built = false;
     this.stageModuleState(module, {built: true}, ctx);
   }
@@ -581,13 +640,7 @@ export class Bbox {
       throw new Error('Module has not `build` specified');
     }
 
-    if (spec.once) {
-      await this.runOnce(module, spec.once, module.state.builtOnce, ctx);
-    }
-
-    if (spec.run) {
-      await this.runInteractive(module, spec.run, ctx);
-    }
+    await this.runRunSpec(module, module.spec.build, module.state.buildState, ctx);
 
     module.state.built = true;
     this.fileManager.saveModuleState(module);
@@ -595,7 +648,7 @@ export class Bbox {
 
   private stageServiceState(service: Service, state: Partial<ServiceState>, ctx: Ctx) {
     const states = ctx.stagedStates
-      .filter((staged) => staged.service)
+      .filter((staged) => staged.service && staged.service.service.name === service.name)
       .map((s) => s.service.state);
     const found = find(states, state);
     if (found) {
@@ -607,7 +660,7 @@ export class Bbox {
 
   private stageModuleState(module: Module, state: Partial<ModuleState>, ctx: Ctx) {
     const states = ctx.stagedStates
-      .filter((staged) => staged.module)
+      .filter((staged) => staged.module && staged.module.module.name === module.name)
       .map((s) => s.module.state);
     const found = find(states, state);
     if (found) {
@@ -617,42 +670,22 @@ export class Bbox {
     ctx.stagedStates.push({module: {module, state}});
   }
 
-  private async runOnce(module: Module, runOnceSpec: RunOnceSpec, state: string[], ctx: Ctx): Promise<{state?: Partial<ModuleState>}> {
-    const diff = this.getNotAppliedMigrations(runOnceSpec, state);
-    if (diff.length === 0) {
-      console.log('> No new migrations'); // XXX
-      return;
-    }
-
-    for (const migId of diff) {
-      try {
-        console.log(`> Migrating ${migId}`); // XXX
-        await this.runInteractive(module, runOnceSpec[migId], ctx);
-
-        state.push(migId);
-        this.fileManager.saveModuleState(module);
-      } catch (e) {
-        console.log(`> Migration ${migId} failed.`); // XXX
-        throw e;
-      }
-    }
-
-    console.log(`> All new migrations applied.`); // XXX
-
-    return {};
-  }
-
-  private async runInteractive(module: Module, runnable: RunnableSpec, ctx: Ctx) {
+  private async runInteractive(module: Module, runnable: RunnableSpec, env: EnvValuesSpec, ctx: Ctx) {
     if (Array.isArray(runnable)) {
       for (const run of runnable) {
-        await this.runInteractive(module, run, ctx);
+        await this.runInteractive(module, run, env, ctx);
       }
       return;
     }
 
     try {
       if (typeof runnable === 'function') {
+        const origEnvs = process.env;
         shelljs.pushd(module.cwdAbsolutePath);
+        process.env = {
+          ...process.env,
+          ...env
+        }
         try {
           await runnable({
             bbox: this,
@@ -661,19 +694,33 @@ export class Bbox {
           });
         } finally {
           shelljs.popd();
+          process.env = origEnvs;
         }
         return;
       }
 
-      await this.processManager.runInteractive(module, runnable, {}, ctx);
+      await this.processManager.runInteractive(module, runnable, env, ctx);
     } catch (e) {
-      console.error(e); // XXX
-      this.ui.print(`**There was an error when running:** \`${runnable}\``);
-      const ret = await this.ui.prompt<{continue: boolean}>([
-        {type: 'confirm', name: 'continue', default: false, message: 'Continue?'}
-      ]);
-      if (!ret.continue) {
-        throw e;
+      this.ui.print(`**Error when running:** \`${runnable}\``);
+      const ret = await this.ui.prompt<{action: 'c' | 'e' | 'r'}>({
+        questions: [
+          {
+            type: 'expand', name: 'action', default: 'c', message: 'Continue, re-run or quit?',
+            choices: [
+              {name: 'Continue', value: 'c', key: 'c'},
+              {name: 'Re-run', value: 'r', key: 'r'},
+              {name: 'Quit', value: 'q', key: 'q'}
+            ]
+          }
+        ]
+      });
+      switch (ret.action) {
+        case 'c':
+          break;
+        case 'r':
+          await this.runInteractive(module, runnable, env, ctx);
+        default:
+          throw e;
       }
     }
   }
@@ -703,12 +750,9 @@ export class Bbox {
   }
 
   getService(serviceName: string) {
-    const modules = this.getAllModules();
-    for (const module of modules) {
-      const service = Object.values(module.services).find(service => service.name === serviceName);
-      if (service) {
-        return service;
-      }
+    const service = this.services.find(service => service.name === serviceName);
+    if (service) {
+      return service;
     }
 
     throw new Error(`Service "${serviceName}" not found.`);
@@ -721,11 +765,28 @@ export class Bbox {
     return this.modules;
   }
 
-  async loadAllModules(ctx: Ctx) {
+  private async loadAllModules(ctx: Ctx) {
     const internalModules = await this.fileManager.discoverInternalModules(ctx.projectOpts.rootPath);
     const modules = await this.fileManager.discoverModules(ctx.projectOpts.rootPath);
     modules.push(...internalModules);
     return modules;
+  }
+
+  private async reloadServiceStates(ctx: Ctx) {
+    for (const service of this.services) {
+      service.state.processStatus = await this.getServiceProcessStatus(service, ctx);
+    }
+  }
+
+  private async getServiceProcessStatus(service: Service, ctx: Ctx): Promise<ServiceProcessStatus> {
+    const process = await this.processManager.findServiceProcess(service, ctx);
+    switch (process?.status) {
+      case ProcessStatus.Running:
+        return ServiceProcessStatus.Online;
+      case ProcessStatus.NotRunning:
+      default:
+        return ServiceProcessStatus.Offline;
+    }
   }
 }
 

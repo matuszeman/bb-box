@@ -1,4 +1,5 @@
-import {Bbox, BboxModule, Cli, Ctx, Runtime, Module} from '../../bbox';
+import {Bbox, BboxModule, Ctx, Runtime, Module} from '../../bbox';
+import { Cli } from '../../cli';
 
 export class ProxyModule implements BboxModule {
   private bbox: Bbox;
@@ -12,9 +13,6 @@ export class ProxyModule implements BboxModule {
   }
 
   async onCliInit(bbox: Bbox, cli: Cli, ctx: Ctx) {
-    cli.command(`proxy:configure`).action(async () => {
-
-    });
   }
 
   async beforeStart(bbox: Bbox, ctx: Ctx) {

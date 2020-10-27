@@ -84,6 +84,11 @@ export class ProcessManager {
       ...serviceSpec.env
     };
 
+    const pm2Options = service.spec.pm2Options ?? {};
+    //TODO
+    console.log('TODO'); // XXX
+    console.log(pm2Options); // XXX
+
     if (module.runtime === Runtime.Docker) {
       const cmdArgs = [];
       if (serviceSpec.port) {
@@ -105,7 +110,7 @@ export class ProcessManager {
       }
       const args = runArgs.join(' ');
       const cmd = `docker-compose ${args}`;
-      console.log(cmd); // XXX
+      //console.log(cmd); // XXX
       await pm2Start({
         cwd: ctx.projectOpts.rootPath,
         name: serviceSpec.name,
@@ -114,6 +119,7 @@ export class ProcessManager {
         interpreter: 'none',// TODO needed?
         autorestart: false,
         killTimeout: 10000000, // TODO configurable
+        ...pm2Options
       });
     } else {
       await pm2Start({
@@ -124,6 +130,7 @@ export class ProcessManager {
         env,
         autorestart: false,
         killTimeout: 10000000, // TODO configurable
+        ...pm2Options
       });
     }
 
@@ -169,10 +176,6 @@ export class ProcessManager {
   }
 
   async getProcessList(ctx: Ctx): Promise<ProcessList> {
-    if (ctx.processList) {
-      return ctx.processList;
-    }
-
     await this.pm2Connect();
     const list = await pm2List();
     const processes: ProcessInstance[] = [];
@@ -185,7 +188,6 @@ export class ProcessManager {
       processes
     };
 
-    ctx.processList = ret;
     return ret;
   }
 
@@ -204,15 +206,15 @@ export class ProcessManager {
     return `docker-compose ${args.join(' ')}`;
   }
 
-  private createDockerComposeRunArgs(module: Module, interactive: boolean, ctx: Ctx, env: EnvValuesSpec, cmdArgs: string[] = []) {
+  private createDockerComposeRunArgs(module: Module, interactive: boolean, ctx: Ctx, customEnv: EnvValuesSpec, cmdArgs: string[] = []) {
     const args = [
-      `--project-directory ${ctx.projectOpts.rootPath}`,
-      `-f ${ctx.projectOpts.dockerComposePath}`
+      `--project-directory ${this.escapeShellValue(ctx.projectOpts.rootPath)}`,
+      `-f ${this.escapeShellValue(ctx.projectOpts.dockerComposePath)}`
     ];
 
     const overridePath = `${ctx.projectOpts.rootPath}/docker-compose.override.yml`;
     if (fs.existsSync(overridePath)) {
-      args.push(`-f ${overridePath}`);
+      args.push(`-f ${this.escapeShellValue(overridePath)}`);
     }
 
     args.push('run', '--rm', '--use-aliases');
@@ -220,8 +222,9 @@ export class ProcessManager {
       args.push('-T');
     }
 
+    const env = this.createModuleEnvValues(module, customEnv);
     for (const envName in env) {
-      args.push(`-e ${envName}=${env[envName]}`);
+      args.push(`-e ${envName}=${this.escapeShellValue(env[envName])}`);
     }
 
     args.push(...cmdArgs);
@@ -229,10 +232,19 @@ export class ProcessManager {
     return args;
   }
 
+  private createModuleEnvValues(module: Module, env: EnvValuesSpec = {}): EnvValuesSpec {
+    return {
+      ...module.spec.env ?? {},
+      ...env
+    };
+  }
+
   private runInteractiveLocal(cwd: string, cmd: string, env: EnvValuesSpec) {
-    console.log('runInteractiveLocal: ', cmd); // XXX
+    //console.log('runInteractiveLocal: ', cmd); // XXX
     // env must be set from process.env otherwise docker-compose won't work
-    env = {...process.env, ...env};
+    env = {...process.env, ...this.escapeEnvValues(env)};
+
+    console.log('runInteractiveLocal', cmd); // XXX
 
     const ret = spawnSync(cmd, {
       cwd,
@@ -244,9 +256,9 @@ export class ProcessManager {
   }
 
   private runLocal(cwd: string, cmd: string, env: EnvValuesSpec) {
-    console.log('runLocal: ', cmd); // XXX
+    //console.log('runLocal: ', cmd); // XXX
     // env must be set from process.env otherwise docker-compose won't work
-    env = {...process.env, ...env};
+    env = {...process.env, ...this.escapeEnvValues(env)};
 
     const ret = spawnSync(cmd, {
       cwd,
@@ -296,5 +308,22 @@ export class ProcessManager {
       await pm2Disconnect();
       this.pm2 = null;
     }
+  }
+
+  private escapeShellValue(s: string) {
+    if (!/^[A-Za-z0-9_\/-]+$/.test(s)) {
+      s = "'"+s.replace(/'/g,"'\\''")+"'";
+      s = s.replace(/^(?:'')+/g, '') // unduplicate single-quote at the beginning
+        .replace(/\\'''/g, "\\'" ); // remove non-escaped single-quote if there are enclosed between 2 escaped
+    }
+    return s;
+  }
+
+  private escapeEnvValues(env: EnvValuesSpec) {
+    const ret: EnvValuesSpec = {};
+    for (const envName in env) {
+      ret[envName] = this.escapeShellValue(env[envName]);
+    }
+    return ret;
   }
 }

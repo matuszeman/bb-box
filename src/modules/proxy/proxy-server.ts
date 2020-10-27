@@ -23,6 +23,7 @@ console.log(`Forwarding rules:`); // XXX
 
 const proxy = redbird({
   port: config.httpPort,
+  //xfwd: false,
   ssl: {
     http2: true,
     port: config.httpsPort,
