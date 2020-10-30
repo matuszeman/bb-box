@@ -2,7 +2,7 @@ import {promisify} from "util";
 import * as pm2 from 'pm2';
 import * as fs from "fs";
 import * as waitOn from 'wait-on';
-import {spawnSync, SpawnSyncReturns} from 'child_process';
+import {spawn, spawnSync, SpawnSyncReturns} from 'child_process';
 import {ProcessDescription} from 'pm2';
 import {Ctx, EnvValuesSpec, Module, Runtime, Service, ServiceSpec} from './bbox';
 
@@ -146,11 +146,10 @@ export class ProcessManager {
 
   async runInteractive(module: Module, cmd: string, env: EnvValuesSpec, ctx: Ctx) {
     if (module.runtime === Runtime.Docker) {
-      this.runInteractiveDocker(module, cmd, ctx, env);
-      return;
+      return this.runInteractiveDocker(module, cmd, ctx, env);
     }
 
-    this.runInteractiveLocal(module.cwdAbsolutePath, cmd, env);
+    return this.runInteractiveLocal(module.cwdAbsolutePath, cmd, env);
   }
 
   async run(module: Module, cmd: string, env: EnvValuesSpec, ctx: Ctx) {
@@ -196,8 +195,8 @@ export class ProcessManager {
     return processes.find((process) => process.serviceName === service.name);
   }
 
-  private runInteractiveDocker(module: Module, cmd: string, ctx: Ctx, env: EnvValuesSpec) {
-    this.runInteractiveLocal(ctx.projectOpts.rootPath, this.createDockerComposeRunCmd(module, cmd, true, ctx, env), {});
+  private async runInteractiveDocker(module: Module, cmd: string, ctx: Ctx, env: EnvValuesSpec) {
+    return this.runInteractiveLocal(ctx.projectOpts.rootPath, this.createDockerComposeRunCmd(module, cmd, true, ctx, env), {});
   }
 
   private createDockerComposeRunCmd(module: Module, cmd: string | undefined, interactive: boolean, ctx: Ctx, env: EnvValuesSpec) {
@@ -239,20 +238,37 @@ export class ProcessManager {
     };
   }
 
-  private runInteractiveLocal(cwd: string, cmd: string, env: EnvValuesSpec) {
+  private async runInteractiveLocal(cwd: string, cmd: string, env: EnvValuesSpec): Promise<{output: string}> {
     //console.log('runInteractiveLocal: ', cmd); // XXX
     // env must be set from process.env otherwise docker-compose won't work
     env = {...process.env, ...this.escapeEnvValues(env)};
 
     console.log('runInteractiveLocal', cmd); // XXX
 
-    const ret = spawnSync(cmd, {
-      cwd,
-      env,
-      shell: true, //throws error without this
-      stdio: 'inherit'
-    });
-    this.handleSpawnReturn(ret);
+    const output = [];
+    return new Promise((resolve, reject) => {
+      const child = spawn(cmd, {
+        cwd,
+        env,
+        shell: true, //throws error without this
+        stdio: [process.stdin, 'pipe', process.stderr]
+      });
+      child.stdout.setEncoding('utf8');
+      child.stdout.on('data', (data) => {
+        output.push(data);
+        process.stdout.write(data);
+      });
+      child.on('exit', (code, signal) => {
+        const err: any = this.handleSpawnReturn(code, signal);
+        if (err) {
+          err.output = output.join();
+          return reject(err);
+        }
+        resolve({
+          output: output.join()
+        });
+      });
+    })
   }
 
   private runLocal(cwd: string, cmd: string, env: EnvValuesSpec) {
@@ -266,16 +282,19 @@ export class ProcessManager {
       shell: true, //throws error without this
       windowsHide: true
     });
-    this.handleSpawnReturn(ret);
+    const err = this.handleSpawnReturn(ret.status, ret.signal);
+    if (err) {
+      throw err;
+    }
     return ret.stdout.toString();
   }
 
-  private handleSpawnReturn(ret) {
-    if (ret.signal === 'SIGINT') {
-      throw new Error('User interrupted');
+  private handleSpawnReturn(status, signal) {
+    if (signal === 'SIGINT') {
+      return new Error('User interrupted');
     }
-    if (ret.status !== null && ret.status !== 0) {
-      throw new Error(`Spawned process returned error code: ${ret.status}`);
+    if (status !== null && status !== 0) {
+      return new Error(`Spawned process returned error code: ${status}`);
     }
   }
 

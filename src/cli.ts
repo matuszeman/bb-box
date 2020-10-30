@@ -56,9 +56,6 @@ export class Cli {
 
     program.version(require('../package.json').version);
 
-    createServiceCommand(program, 'build')
-      .action(runServiceCommand(bbox, ctx, bbox.build));
-
     createServiceCommand(program, 'start')
       .action(runServiceCommand(bbox, ctx, bbox.start));
 
@@ -74,29 +71,12 @@ export class Cli {
     createServiceCommand(program, 'test')
       .action(runServiceCommand(bbox, ctx, bbox.test));
 
-    program.command('configure <service>')
-      .aliases(['config', 'c'])
-      .action(runCommand(bbox, ctx, bbox.configure, (service) => {
-        return {
-          service
-        }
-      }))
+    program.command('pipeline <service> <pipeline>')
+      .aliases(['p'])
+      .action(runCommand(bbox, ctx, bbox.pipeline, (service, pipeline) => ({ service, pipeline })))
 
-    program.command('initialize <service>')
-      .alias('init')
-      .action(runCommand(bbox, ctx, bbox.initialize, (service) => {
-        return {
-          service
-        }
-      }))
-
-    program.command('run <service> <task>')
-      .action(runCommand(bbox, ctx, bbox.runTask, (service, task) => {
-        return {
-          service,
-          task
-        }
-      }))
+    program.command('task <service> <task>')
+      .action(runCommand(bbox, ctx, bbox.task, (service, task) => ({ service, task })))
 
     this.program = program;
   }

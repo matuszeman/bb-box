@@ -9,7 +9,7 @@ import {
   DockerVolumesSpec,
   Module,
   ModuleSpec,
-  ModuleState,
+  ModuleState, Pipelines, PipelinesSpec,
   Runtime,
   Service,
   ServiceProcessStatus,
@@ -120,10 +120,8 @@ export class BboxDiscovery {
     const moduleStateFile = this.loadJsFile<Partial<ModuleState>>(stateFilePath);
     // TODO types
     const state: ModuleState = Object.assign<ModuleState, Partial<ModuleState>>({
-      built: false,
-      configured: false,
-      initialized: false,
-      tasks: {}
+      tasks: {},
+      pipelines: {}
     }, moduleStateFile);
 
     const module: Module = {
@@ -139,7 +137,8 @@ export class BboxDiscovery {
       spec: moduleSpec,
       bboxPath: bboxPath,
       bboxModule,
-      tasks: this.createTasks(moduleSpec.tasks, moduleSpec.name)
+      tasks: this.createTasks(moduleSpec.tasks, moduleSpec.name),
+      pipelines: this.createPipelines(moduleSpec.pipelines, moduleSpec.name)
     }
 
     if (moduleSpec.docker) {
@@ -215,6 +214,23 @@ export class BboxDiscovery {
       };
     }
     return tasks;
+  }
+
+  private createPipelines(pipelinesSpec: PipelinesSpec | undefined, moduleName): Pipelines {
+    if (!pipelinesSpec) {
+      return {};
+    }
+
+    const pipelines: Pipelines = {};
+    for (const name of Object.keys(pipelinesSpec)) {
+      const spec = pipelinesSpec[name];
+      pipelines[name] = {
+        name,
+        spec,
+        dependencies: this.createDependencies(spec.dependencies, moduleName)
+      };
+    }
+    return pipelines;
   }
 
   private createDependencies(dependenciesSpec: DependenciesSpec, moduleName: string, serviceName?: string): Dependency[] {
