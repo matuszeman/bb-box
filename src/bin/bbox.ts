@@ -15,7 +15,7 @@ async function createBox() {
       rootPath,
       dockerComposePath: `${rootPath}/docker-compose.yml`,
     },
-    stagedStates: []
+    stagedActions: []
   }
   const bbox = new Bbox(fileManager, processManager, new Ui());
   await bbox.init(ctx);
@@ -43,5 +43,12 @@ async function createBox() {
   //cli init
   await bbox.onCliInit(cli, ctx);
 
-  await cli.runArgv(process.argv);
+  try {
+    await cli.runArgv(process.argv);
+  } catch (e) {
+    //console.error(e);
+
+  } finally {
+    await bbox.shutdown();
+  }
 })();

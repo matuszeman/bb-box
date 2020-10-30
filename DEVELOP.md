@@ -1,3 +1,5 @@
+
+
 # Git support
 
 For `nodegit`
@@ -17,6 +19,14 @@ https://github.com/enquirer/enquirer#-custom-prompts
 
 ## Reverse proxy
 [done] https://github.com/OptimalBits/redbird
+
+### Reverse proxy on port 80/443
+
+Reference: https://pm2.keymetrics.io/docs/usage/specifics/#listening-on-port-80-wo-root
+
+```
+authbind --deep bbox start bbox-proxy
+```
 
 ## Parallel operations
 

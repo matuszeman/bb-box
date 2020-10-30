@@ -1,12 +1,17 @@
 import {ProxyConfig} from './proxy-server';
 import * as fs from "fs";
-import {RunnableFnParams, Runtime} from '../../bbox';
+import {RunnableFnParams, Runtime, ModuleSpec} from '../../bbox';
 import * as YAML from 'yamljs';
 
-export default {
+const config: ModuleSpec = {
   name: 'bbox-proxy',
   configure: {
-    'config': {
+    configure: {
+      task: 'configure'
+    }
+  },
+  tasks: {
+    configure: {
       run: async function bboxProxyConfigure(params: RunnableFnParams) {
         const {bbox, ctx} = params;
         const proxyService = await bbox.getService('bbox-proxy');
@@ -156,3 +161,5 @@ export default {
     }
   }
 }
+
+export default config;

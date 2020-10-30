@@ -2,14 +2,19 @@ import * as fs from 'fs';
 import * as nodePath from 'path';
 import * as globby from 'globby';
 import {
-  BboxModule, DockerVolumes,
+  BboxModule,
+  DependenciesSpec,
+  Dependency,
+  DockerVolumes,
   DockerVolumesSpec,
   Module,
   ModuleSpec,
-  ModuleState, RunStateMap,
+  ModuleState,
   Runtime,
   Service,
-  ServiceProcessStatus
+  ServiceProcessStatus,
+  Tasks,
+  TasksSpec
 } from './bbox';
 
 export class BboxDiscovery {
@@ -116,11 +121,9 @@ export class BboxDiscovery {
     // TODO types
     const state: ModuleState = Object.assign<ModuleState, Partial<ModuleState>>({
       built: false,
-      buildState: {},
       configured: false,
-      configureState: {},
       initialized: false,
-      initializeState: {}
+      tasks: {}
     }, moduleStateFile);
 
     const module: Module = {
@@ -135,7 +138,8 @@ export class BboxDiscovery {
       availableRuntimes: [],
       spec: moduleSpec,
       bboxPath: bboxPath,
-      bboxModule
+      bboxModule,
+      tasks: this.createTasks(moduleSpec.tasks, moduleSpec.name)
     }
 
     if (moduleSpec.docker) {
@@ -168,7 +172,8 @@ export class BboxDiscovery {
           spec: serviceSpec,
           state: {
             processStatus: ServiceProcessStatus.Unknown
-          }
+          },
+          dependencies: this.createDependencies(serviceSpec.dependencies, moduleSpec.name, serviceSpec.name)
         };
 
         if (serviceSpec.docker) {
@@ -184,14 +189,51 @@ export class BboxDiscovery {
     }
 
     if (module.availableRuntimes.length === 0) {
+      module.availableRuntimes.push(Runtime.Local);
       //throw new Error(`Module ${module.name} has no available runtime`);
-      console.warn(`Module ${module.spec.name} has no available runtime`);
+      //console.warn(`Module ${module.spec.name} has no available runtime`);
     }
     if (!module.runtime) {
       module.runtime = module.availableRuntimes[0];
     }
 
     return module;
+  }
+
+  private createTasks(tasksSpec: TasksSpec | undefined, moduleName): Tasks {
+    if (!tasksSpec) {
+      return {};
+    }
+
+    const tasks: Tasks = {};
+    for (const name of Object.keys(tasksSpec)) {
+      const taskSpec = tasksSpec[name];
+      tasks[name] = {
+        name,
+        spec: taskSpec,
+        dependencies: this.createDependencies(taskSpec.dependencies, moduleName)
+      };
+    }
+    return tasks;
+  }
+
+  private createDependencies(dependenciesSpec: DependenciesSpec, moduleName: string, serviceName?: string): Dependency[] {
+    if (!dependenciesSpec) {
+      return [];
+    }
+
+    const dependencies: Dependency[] = [];
+    for (const dependencySpecOrig of dependenciesSpec) {
+      const dependencySpec = {
+        module: moduleName,
+        service: serviceName,
+        ...dependencySpecOrig
+      }
+      dependencies.push({
+        spec: dependencySpec
+      });
+    }
+    return dependencies;
   }
 
   private loadJsFileIfExists<T>(path: string): T | undefined {

@@ -2,7 +2,7 @@ import {Command} from 'commander';
 import {Bbox, Ctx, ServiceCommandParams} from './bbox';
 
 function createServiceCommand(program: Command, cmd) {
-  return program.command(`${cmd} [services...]`)
+  return program.command(`${cmd} <service>`)
     .option('--deps', 'TODO run with dependencies')
 }
 
@@ -10,27 +10,25 @@ function runCommandOpts(bbox: Bbox, ctx: Ctx, handler) {
   return async (command: Command) => {
     try {
       await handler.bind(bbox)(command.opts(), ctx);
+      await bbox.status({}, ctx);
     } catch(e) {
       console.error(e); //XXX
     }
-
-    await bbox.shutdown();
   };
 }
 
 function runServiceCommand(bbox: Bbox, ctx: Ctx, handler) {
-  return async (services, command: Command) => {
+  return async (service, command: Command) => {
     try {
       const commandParams: ServiceCommandParams = {
-        services,
+        service,
         ...command.opts()
       };
       await handler.bind(bbox)(commandParams, ctx);
+      await bbox.status({}, ctx);
     } catch(e) {
       console.error(e); //XXX
     }
-
-    await bbox.shutdown();
   };
 }
 
@@ -39,11 +37,10 @@ function runCommand(bbox: Bbox, ctx: Ctx, handler, paramsHandler) {
     try {
       const params = paramsHandler(...arguments);
       await handler.bind(bbox)(params, ctx);
+      await bbox.status({}, ctx);
     } catch(e) {
       console.error(e); //XXX
     }
-
-    await bbox.shutdown();
   };
 }
 
@@ -52,6 +49,7 @@ export class Cli {
 
   constructor(private bbox: Bbox, private ctx: Ctx) {
     const program = new Command() as Command;
+    //program.exitOverride();
     program.passCommandToAction(true);
     program.allowUnknownOption(false);
     program.storeOptionsAsProperties(false);
@@ -71,32 +69,32 @@ export class Cli {
       .action(runServiceCommand(bbox, ctx, bbox.value));
 
     program.command('status').aliases(['list', 'ls'])
-      .action(runCommandOpts(bbox, ctx, bbox.list));
+      .action(runCommandOpts(bbox, ctx, bbox.status));
 
     createServiceCommand(program, 'test')
       .action(runServiceCommand(bbox, ctx, bbox.test));
 
-    program.command('configure <module>')
+    program.command('configure <service>')
       .aliases(['config', 'c'])
-      .action(runCommand(bbox, ctx, bbox.configure, (module) => {
+      .action(runCommand(bbox, ctx, bbox.configure, (service) => {
         return {
-          module
+          service
         }
       }))
 
-    program.command('initialize <module>')
+    program.command('initialize <service>')
       .alias('init')
-      .action(runCommand(bbox, ctx, bbox.initialize, (module) => {
+      .action(runCommand(bbox, ctx, bbox.initialize, (service) => {
         return {
-          module
+          service
         }
       }))
 
-    program.command('run <module>')
-      .action(runCommand(bbox, ctx, bbox.run, (module, command: Command, runnable) => {
+    program.command('run <service> <task>')
+      .action(runCommand(bbox, ctx, bbox.runTask, (service, task) => {
         return {
-          module,
-          cmd: runnable.join(' ')
+          service,
+          task
         }
       }))
 
@@ -112,8 +110,8 @@ export class Cli {
     await this.program.parseAsync(argv);
   }
 
-  async runCmd(cmd: string) {
-    const argv = cmd.split(' ');
-    await this.program.parseAsync(argv);
+  async runServiceCmd(service: string, cmd: string) {
+    const argv = [...cmd.split(' '), service];
+    await this.program.parseAsync(argv, {from: 'user'});
   }
 }
