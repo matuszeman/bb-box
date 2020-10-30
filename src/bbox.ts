@@ -730,6 +730,7 @@ export class Bbox {
       });
       switch (ret.action) {
         case 's':
+          return {output};
           break;
         case 'r':
           return await this.runInteractive(module, runnable, env, ctx);

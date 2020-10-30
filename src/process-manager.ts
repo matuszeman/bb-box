@@ -1,10 +1,11 @@
-import {promisify} from "util";
+import {promisify} from 'util';
 import * as pm2 from 'pm2';
-import * as fs from "fs";
-import * as waitOn from 'wait-on';
-import {spawn, spawnSync, SpawnSyncReturns} from 'child_process';
 import {ProcessDescription} from 'pm2';
-import {Ctx, EnvValuesSpec, Module, Runtime, Service, ServiceSpec} from './bbox';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as waitOn from 'wait-on';
+import {spawn, spawnSync} from 'child_process';
+import {Ctx, EnvValuesSpec, Module, Runtime, Service} from './bbox';
 
 const pm2Connect = promisify(pm2.connect).bind(pm2);
 const pm2Disconnect = promisify(pm2.disconnect).bind(pm2);
@@ -110,7 +111,7 @@ export class ProcessManager {
       }
       const args = runArgs.join(' ');
       const cmd = `docker-compose ${args}`;
-      //console.log(cmd); // XXX
+      console.log('Starting process: ', cmd); // XXX
       await pm2Start({
         cwd: ctx.projectOpts.rootPath,
         name: serviceSpec.name,
@@ -221,6 +222,13 @@ export class ProcessManager {
       args.push('-T');
     }
 
+    // Use user option only for local modules
+    if (module.availableRuntimes.findIndex(value => value === Runtime.Local) !== -1
+      && os.type() === 'Linux' && process.getgid && process.getuid) {
+      const user = `${process.getuid()}:${process.getgid()}`;
+      args.push(`--user=${this.escapeShellValue(user)}`)
+    }
+
     const env = this.createModuleEnvValues(module, customEnv);
     for (const envName in env) {
       args.push(`-e ${envName}=${this.escapeShellValue(env[envName])}`);
@@ -329,8 +337,14 @@ export class ProcessManager {
     }
   }
 
+  /**
+   * Do not escape comma, dot and : separated values
+   * E.g: SERVICES='sqs,sns,lambda,cloudwatch,s3,s3api,dynamodb' - This was causing sqs and dynamodb to be ignored by localstack
+   * E.g: HOSTNAME_EXTERNAL='localstack.local.slido-staging.com' - hostname was set with single quote also
+   * E.g: --user='1000:1000' - "Error response from daemon: unable to find user "1000: no matching entries in passwd file"
+   */
   private escapeShellValue(s: string) {
-    if (!/^[A-Za-z0-9_\/-]+$/.test(s)) {
+    if (!/^[A-Za-z0-9_\/:,\.-]+$/.test(s)) {
       s = "'"+s.replace(/'/g,"'\\''")+"'";
       s = s.replace(/^(?:'')+/g, '') // unduplicate single-quote at the beginning
         .replace(/\\'''/g, "\\'" ); // remove non-escaped single-quote if there are enclosed between 2 escaped
