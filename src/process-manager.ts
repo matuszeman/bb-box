@@ -5,7 +5,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as waitOn from 'wait-on';
 import {spawn, spawnSync} from 'child_process';
-import {Ctx, EnvValuesSpec, Module, Runtime, Service} from './bbox';
+import {Ctx, EnvValues, EnvValuesSpec, Module, Runtime, Service} from './bbox';
 
 const pm2Connect = promisify(pm2.connect).bind(pm2);
 const pm2Disconnect = promisify(pm2.disconnect).bind(pm2);
@@ -33,24 +33,19 @@ export class ProcessList {
 }
 
 export class ProcessSpec {
+  module: Module;
   name: string;
-  env: EnvValuesSpec;
+  env: EnvValues;
   cwd: string;
+
+  ports: {}
 }
 
 export class ProcessManager {
   private pm2;
 
-  async startIfNeeded(service: Service, ctx: Ctx) {
-    const process = await this.findServiceProcess(service, ctx);
-    if (process && process.status === ProcessStatus.Running) {
-      return;
-    }
-    await this.start(service, ctx);
-  }
-
-  async startAndWaitUntilStarted(service: Service, ctx: Ctx) {
-    await this.start(service, ctx);
+  async startAndWaitUntilStarted(service: Service, envValues: EnvValues, ctx: Ctx) {
+    await this.start(service, envValues, ctx);
     await this.waitForStatus(service, ProcessStatus.Running, ctx);
   }
 
@@ -70,7 +65,7 @@ export class ProcessManager {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  async start(service: Service, ctx: Ctx) {
+  async start(service: Service, envValues: EnvValues, ctx: Ctx) {
     const module = service.module;
     const serviceSpec = service.spec;
     if (module.availableRuntimes.length === 0) {
@@ -82,13 +77,11 @@ export class ProcessManager {
 
     const env = {
       BBOX_PATH: module.bboxPath,
-      ...serviceSpec.env
+      ...envValues
     };
 
-    const pm2Options = service.spec.pm2Options ?? {};
     //TODO
-    console.log('TODO'); // XXX
-    console.log(pm2Options); // XXX
+    const pm2Options = service.spec.pm2Options ?? {};
 
     if (module.runtime === Runtime.Docker) {
       const cmdArgs = [];
@@ -145,7 +138,7 @@ export class ProcessManager {
     return this.pm2Disconnect()
   }
 
-  async runInteractive(module: Module, cmd: string, env: EnvValuesSpec, ctx: Ctx) {
+  async runInteractive(module: Module, cmd: string, env: EnvValues, ctx: Ctx) {
     if (module.runtime === Runtime.Docker) {
       return this.runInteractiveDocker(module, cmd, ctx, env);
     }
@@ -153,7 +146,7 @@ export class ProcessManager {
     return this.runInteractiveLocal(module.cwdAbsolutePath, cmd, env);
   }
 
-  async run(module: Module, cmd: string, env: EnvValuesSpec, ctx: Ctx) {
+  async run(module: Module, cmd: string, env: EnvValues, ctx: Ctx) {
     if (module.runtime === Runtime.Docker) {
       return this.runLocal(ctx.projectOpts.rootPath, this.createDockerComposeRunCmd(module, cmd, false, ctx, env), {});
     }
@@ -196,17 +189,17 @@ export class ProcessManager {
     return processes.find((process) => process.serviceName === service.name);
   }
 
-  private async runInteractiveDocker(module: Module, cmd: string, ctx: Ctx, env: EnvValuesSpec) {
+  private async runInteractiveDocker(module: Module, cmd: string, ctx: Ctx, env: EnvValues) {
     return this.runInteractiveLocal(ctx.projectOpts.rootPath, this.createDockerComposeRunCmd(module, cmd, true, ctx, env), {});
   }
 
-  private createDockerComposeRunCmd(module: Module, cmd: string | undefined, interactive: boolean, ctx: Ctx, env: EnvValuesSpec) {
+  private createDockerComposeRunCmd(module: Module, cmd: string | undefined, interactive: boolean, ctx: Ctx, env: EnvValues) {
     const args = this.createDockerComposeRunArgs(module, interactive, ctx, env);
     args.push(module.name, cmd);
     return `docker-compose ${args.join(' ')}`;
   }
 
-  private createDockerComposeRunArgs(module: Module, interactive: boolean, ctx: Ctx, customEnv: EnvValuesSpec, cmdArgs: string[] = []) {
+  private createDockerComposeRunArgs(module: Module, interactive: boolean, ctx: Ctx, env: EnvValues, cmdArgs: string[] = []) {
     const args = [
       `--project-directory ${this.escapeShellValue(ctx.projectOpts.rootPath)}`,
       `-f ${this.escapeShellValue(ctx.projectOpts.dockerComposePath)}`
@@ -229,7 +222,6 @@ export class ProcessManager {
       args.push(`--user=${this.escapeShellValue(user)}`)
     }
 
-    const env = this.createModuleEnvValues(module, customEnv);
     for (const envName in env) {
       args.push(`-e ${envName}=${this.escapeShellValue(env[envName])}`);
     }
@@ -239,17 +231,10 @@ export class ProcessManager {
     return args;
   }
 
-  private createModuleEnvValues(module: Module, env: EnvValuesSpec = {}): EnvValuesSpec {
-    return {
-      ...module.spec.env ?? {},
-      ...env
-    };
-  }
-
-  private async runInteractiveLocal(cwd: string, cmd: string, env: EnvValuesSpec): Promise<{output: string}> {
+  private async runInteractiveLocal(cwd: string, cmd: string, envValues: EnvValues): Promise<{output: string}> {
     //console.log('runInteractiveLocal: ', cmd); // XXX
     // env must be set from process.env otherwise docker-compose won't work
-    env = {...process.env, ...this.escapeEnvValues(env)};
+    const env = {...process.env, ...this.escapeEnvValues(envValues)};
 
     console.log('runInteractiveLocal', cmd); // XXX
 
@@ -269,17 +254,17 @@ export class ProcessManager {
       child.on('exit', (code, signal) => {
         const err: any = this.handleSpawnReturn(code, signal);
         if (err) {
-          err.output = output.join();
+          err.output = output.join('');
           return reject(err);
         }
         resolve({
-          output: output.join()
+          output: output.join('')
         });
       });
     })
   }
 
-  private runLocal(cwd: string, cmd: string, env: EnvValuesSpec) {
+  private runLocal(cwd: string, cmd: string, env: EnvValues) {
     //console.log('runLocal: ', cmd); // XXX
     // env must be set from process.env otherwise docker-compose won't work
     env = {...process.env, ...this.escapeEnvValues(env)};
@@ -352,8 +337,8 @@ export class ProcessManager {
     return s;
   }
 
-  private escapeEnvValues(env: EnvValuesSpec) {
-    const ret: EnvValuesSpec = {};
+  private escapeEnvValues(env: EnvValues) {
+    const ret: EnvValues = {};
     for (const envName in env) {
       ret[envName] = this.escapeShellValue(env[envName]);
     }

@@ -5,17 +5,105 @@ import {
   BboxModule,
   DependenciesSpec,
   Dependency,
+  DependencySpec,
   DockerVolumes,
   DockerVolumesSpec,
   Module,
   ModuleSpec,
-  ModuleState, Pipelines, PipelinesSpec,
+  ModuleState,
+  Pipeline,
+  Pipelines,
+  PipelinesSpec,
   Runtime,
   Service,
   ServiceProcessStatus,
+  Task,
   Tasks,
   TasksSpec
 } from './bbox';
+import {BboxError, ErrorCode} from './errors';
+
+export type Dependant = Service | Pipeline | Task;
+
+export class DiscoveryCtx {
+  modules: Module[] = [];
+  depsToResolve: {dependant: Dependant, spec: DependencySpec}[] = [];
+
+  resolveDependencies() {
+    for (const dep of this.depsToResolve) {
+      const {spec, dependant} = dep;
+
+      if (!spec.module && !spec.service) {
+        // default to dependant/this module if module is not set explicitly
+        spec.module = dependant.module.name;
+      }
+
+      if (spec.service) {
+        const service = this.getService(spec.service);
+        dependant.dependencies.push({
+          origin: dependant,
+          target: service,
+          spec
+        });
+        continue;
+      }
+
+      if (spec.task) {
+        const task = this.getTask(spec.module, spec.task);
+        dependant.dependencies.push({
+          origin: dependant,
+          target: task,
+          spec
+        });
+        continue;
+      }
+
+      if (spec.pipeline) {
+        const task = this.getPipeline(spec.module, spec.pipeline);
+        dependant.dependencies.push({
+          origin: dependant,
+          target: task,
+          spec
+        });
+        continue;
+      }
+    }
+  }
+
+  getService(name: string): Service {
+    for (const module of this.modules) {
+      if (module.services[name]) {
+        return module.services[name];
+      }
+    }
+    throw new BboxError(ErrorCode.NotFound, `Service ${name} not found`)
+  }
+
+  getTask(module: string, name: string): Task {
+    const ret = this.getModule(module).tasks[name];
+    if (ret) {
+      return ret;
+    }
+    throw new BboxError(ErrorCode.NotFound, `Task ${name} not found`)
+  }
+
+  getPipeline(module: string, name: string): Pipeline {
+    const ret = this.getModule(module).pipelines[name];
+    if (ret) {
+      return ret;
+    }
+    throw new BboxError(ErrorCode.NotFound, `Pipeline ${name} not found`)
+  }
+
+  getModule(name: string) {
+    for (const module of this.modules) {
+      if (module.name === name) {
+        return module;
+      }
+    }
+    throw new BboxError(ErrorCode.NotFound, `Module ${name} not found`)
+  }
+}
 
 export class BboxDiscovery {
   private bboxFile = 'bbox.js'
@@ -54,19 +142,21 @@ export class BboxDiscovery {
       // TODO suppressErrors does not work and still getting EACCESS errors
       suppressErrors: true // to suppress e.g. EACCES: permission denied, scandir
     });
-    const modules: Module[] = [];
+    const ctx = new DiscoveryCtx();
     for (const moduleFilePath of paths) {
       try {
         const absolutePath = nodePath.dirname(moduleFilePath);
         const moduleSpec: ModuleSpec = require(moduleFilePath);
-        const module = this.createModule(rootPath, absolutePath, moduleSpec, `${absolutePath}/.bbox`, absolutePath);
-        modules.push(module);
+        const module = this.createModule(rootPath, absolutePath, moduleSpec, `${absolutePath}/.bbox`, absolutePath, ctx);
+        ctx.modules.push(module);
       } catch (e) {
         throw new Error(`Module file error. Module disabled. ${moduleFilePath}: ${e}\n${e.stack}`);
       }
     }
 
-    return modules;
+    ctx.resolveDependencies();
+
+    return ctx.modules;
   }
 
   async discoverInternalModules(projectRootPath: string): Promise<Module[]> {
@@ -80,27 +170,29 @@ export class BboxDiscovery {
       // TODO suppressErrors does not work and still getting EACCESS errors
       suppressErrors: true // to suppress e.g. EACCES: permission denied, scandir
     });
-    const modules: Module[] = [];
+    const ctx = new DiscoveryCtx();
     for (const moduleFilePath of paths) {
       try {
         const absolutePath = nodePath.dirname(moduleFilePath);
         const moduleSpec = this.loadJsFile<ModuleSpec>(moduleFilePath);
         const bboxPath = `${projectRootPath}/.bbox/internal-modules/${moduleSpec.name}`;
-        const module = this.createModule(rootPath, absolutePath, moduleSpec, bboxPath, bboxPath);
-        modules.push(module);
+        const module = this.createModule(rootPath, absolutePath, moduleSpec, bboxPath, bboxPath, ctx);
+        ctx.modules.push(module);
       } catch (e) {
         throw new Error(`Module file error. Module disabled. ${moduleFilePath}: ${e}\n${e.stack}`);
       }
     }
 
-    return modules;
+    ctx.resolveDependencies();
+
+    return ctx.modules;
   }
 
   saveModuleState(module: Module) {
     fs.writeFileSync(`${module.bboxPath}/state.json`, JSON.stringify(module.state, null, 2));
   }
 
-  private createModule(rootPath: string, absolutePath: string, moduleSpec: ModuleSpec, bboxPath: string, cwdPath: string): Module {
+  private createModule(rootPath: string, absolutePath: string, moduleSpec: ModuleSpec, bboxPath: string, cwdPath: string, ctx: DiscoveryCtx): Module {
     this.mkdir(bboxPath);
 
     const stateFilePath = `${bboxPath}/state.json`;
@@ -125,6 +217,7 @@ export class BboxDiscovery {
     }, moduleStateFile);
 
     const module: Module = {
+      type: 'Module',
       root: rootPath === absolutePath,
       cwdAbsolutePath: cwdPath,
       name: moduleSpec.name,
@@ -137,9 +230,12 @@ export class BboxDiscovery {
       spec: moduleSpec,
       bboxPath: bboxPath,
       bboxModule,
-      tasks: this.createTasks(moduleSpec.tasks, moduleSpec.name),
-      pipelines: this.createPipelines(moduleSpec.pipelines, moduleSpec.name)
+      tasks: {},
+      pipelines: {}
     }
+
+    module.tasks = this.createTasks(moduleSpec.tasks, module, ctx);
+    module.pipelines = this.createPipelines(moduleSpec.pipelines, module, ctx);
 
     if (moduleSpec.docker) {
       module.availableRuntimes.push(Runtime.Docker);
@@ -166,14 +262,18 @@ export class BboxDiscovery {
         }
 
         const service: Service = {
+          type: 'Service',
           module,
           name: serviceSpec.name,
           spec: serviceSpec,
           state: {
             processStatus: ServiceProcessStatus.Unknown
           },
-          dependencies: this.createDependencies(serviceSpec.dependencies, moduleSpec.name, serviceSpec.name)
+          dependencies: []
         };
+
+        // resolve dependencies
+        this.discoverDependencies(serviceSpec.dependencies, service, ctx);
 
         if (serviceSpec.docker) {
           // make sure to pre-create docker volumes otherwise they'll be create with root permissions by docker-compose
@@ -199,7 +299,7 @@ export class BboxDiscovery {
     return module;
   }
 
-  private createTasks(tasksSpec: TasksSpec | undefined, moduleName): Tasks {
+  private createTasks(tasksSpec: TasksSpec | undefined, module: Module, ctx: DiscoveryCtx): Tasks {
     if (!tasksSpec) {
       return {};
     }
@@ -207,16 +307,22 @@ export class BboxDiscovery {
     const tasks: Tasks = {};
     for (const name of Object.keys(tasksSpec)) {
       const taskSpec = tasksSpec[name];
-      tasks[name] = {
+      const task: Task = {
+        type: 'Task',
         name,
+        module,
         spec: taskSpec,
-        dependencies: this.createDependencies(taskSpec.dependencies, moduleName)
+        dependencies: []
       };
+
+      this.discoverDependencies(taskSpec.dependencies, task, ctx);
+
+      tasks[name] = task;
     }
     return tasks;
   }
 
-  private createPipelines(pipelinesSpec: PipelinesSpec | undefined, moduleName): Pipelines {
+  private createPipelines(pipelinesSpec: PipelinesSpec | undefined, module: Module, ctx: DiscoveryCtx): Pipelines {
     if (!pipelinesSpec) {
       return {};
     }
@@ -224,32 +330,37 @@ export class BboxDiscovery {
     const pipelines: Pipelines = {};
     for (const name of Object.keys(pipelinesSpec)) {
       const spec = pipelinesSpec[name];
-      pipelines[name] = {
+      const pipeline: Pipeline = {
+        type: 'Pipeline',
         name,
+        module,
         spec,
-        dependencies: this.createDependencies(spec.dependencies, moduleName)
+        dependencies: []
       };
+
+      this.discoverDependencies(spec.dependencies, pipeline, ctx);
+
+      pipelines[name] = pipeline;
     }
     return pipelines;
   }
 
-  private createDependencies(dependenciesSpec: DependenciesSpec, moduleName: string, serviceName?: string): Dependency[] {
+  private discoverDependencies(dependenciesSpec: DependenciesSpec, dependant: Dependant, ctx: DiscoveryCtx): Dependency[] {
     if (!dependenciesSpec) {
-      return [];
+      return;
     }
 
-    const dependencies: Dependency[] = [];
     for (const dependencySpecOrig of dependenciesSpec) {
       const dependencySpec = {
-        module: moduleName,
-        service: serviceName,
+        //module: dependant.dependantModule?.name,
+        //service: dependant.dependantService?.name,
         ...dependencySpecOrig
       }
-      dependencies.push({
+      ctx.depsToResolve.push({
+        dependant,
         spec: dependencySpec
       });
     }
-    return dependencies;
   }
 
   private loadJsFileIfExists<T>(path: string): T | undefined {

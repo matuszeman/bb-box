@@ -20,14 +20,36 @@ export type Runnable = string | RunnableFn;
 export type RunnableSpec = Runnable | Runnable[];
 export type ActionFn = () => Promise<any>;
 
-export type DependencySpec = {module?: string, service?: string, state?: string, task?: string, force?: boolean, pipeline?: string};
+export type EntityType = 'Module' | 'Service' | 'Pipeline' | 'Task';
+export interface Entity {
+  type: EntityType;
+  name: string;
+}
+
+export interface DependantEntity extends Entity {
+  dependencies: Dependency[];
+}
+
+export class DependencySpec {
+  module?: string;
+  service?: string;
+  state?: string;
+  task?: string;
+  force?: boolean;
+  pipeline?: string;
+  env?: string
+}
 export type DependenciesSpec = DependencySpec[];
 
 export class Dependency {
+  origin: Service | Pipeline | Task;
+  target: Service | Pipeline | Task;
   spec: DependencySpec;
 }
 
-export type EnvValuesSpec = {[key: string]: any};
+export type EnvValue = string;
+export type EnvValuesSpec = {[key: string]: EnvValue | RunnableFn};
+export type EnvValues = {[key: string]: EnvValue};
 
 export enum ServiceProcessStatus {
   Unknown = 'Unknown',
@@ -79,9 +101,10 @@ export interface ServiceState {
   processStatus: ServiceProcessStatus
 }
 
-export class Service {
-  module: Module;
+export class Service implements DependantEntity {
+  type: 'Service';
   name: string;
+  module: Module;
   spec: ServiceSpec;
   state: ServiceState;
   docker?: ServiceDocker;
@@ -131,8 +154,10 @@ export class TasksSpec {
   [name: string]: TaskSpec;
 }
 
-export class Task {
+export class Task implements DependantEntity {
+  type: 'Task';
   name: string;
+  module: Module;
   spec: TaskSpec;
   dependencies: Dependency[]
 }
@@ -159,8 +184,10 @@ export class PipelinesSpec {
   [name: string]: PipelineSpec;
 }
 
-export class Pipeline {
+export class Pipeline implements DependantEntity {
+  type: 'Pipeline';
   name: string;
+  module: Module;
   spec: PipelineSpec;
   dependencies: Dependency[];
 }
@@ -199,7 +226,8 @@ export class ModuleDocker {
   volumes: DockerVolumes;
 }
 
-export class Module {
+export class Module implements Entity {
+  type: EntityType = 'Module';
   root: boolean;
   name: string;
   spec: ModuleSpec;
@@ -230,6 +258,7 @@ export interface Ctx {
     run: ActionFn;
     name: string;
     hash: string;
+    dependency?: Dependency;
   }[];
 }
 
@@ -346,7 +375,8 @@ export class Bbox {
   @validateParams()
   async pipeline(params: PipelineParams, ctx: Ctx) {
     const service = this.getService(params.service);
-    this.stagePipeline(service.module, params.pipeline, true, ctx);
+    const {pipeline} = this.getPipeline(service.module, params.pipeline);
+    this.stagePipeline(pipeline, true, ctx);
     await this.executeStaged(ctx);
   }
 
@@ -364,7 +394,7 @@ export class Bbox {
   async start(params: ServiceCommandParams, ctx: Ctx) {
     const service = this.getService(params.service);
 
-    this.stageStart(service, ctx);
+    this.stageStartServiceIfNotStarted(service, ctx);
 
     await this.executeStaged(ctx);
   }
@@ -373,7 +403,7 @@ export class Bbox {
   async stop(params: ServiceCommandParams, ctx: Ctx) {
     const service = await this.getService(params.service);
 
-    this.stageAction(ctx, `Stopping ${service.name}`, `stop_service_${service.name}`,async () => {
+    this.stageAction(ctx, `[${service.module.name}] Stopping ${service.name} service`, `stop_service_${service.name}`, undefined, async () => {
       await this.processManager.stopAndWaitUntilStopped(service, ctx);
     });
 
@@ -395,13 +425,13 @@ export class Bbox {
       throw new Error(`Task "${task.name}" not found`);
     }
 
-    this.stageRunTask(module, task, ctx);
+    this.stageRunTask(task, ctx);
     await this.executeStaged(ctx);
   }
 
   private async executeStaged(ctx: Ctx) {
-    // ctx.stagedStates.forEach((staged) => {
-    //   console.log(staged); // XXX
+    // ctx.stagedActions.forEach((staged) => {
+    //   console.log(staged.name, staged.dependency); // XXX
     // })
     // process.exit(0);
 
@@ -428,7 +458,8 @@ export class Bbox {
       //TODO
       await this.executeStaged(ctx);
 
-      return await this.processManager.run(service.module, serviceSpec.valueProviders[providerName], serviceSpec.env, ctx);
+      const env = await this.getEnvValues(service.module, serviceSpec.env, ctx);
+      return await this.processManager.run(service.module, serviceSpec.valueProviders[providerName], env, ctx);
     } catch (e) {
       throw Error(`Could not get ${valueName} value: ${e.message}`);
     }
@@ -454,15 +485,20 @@ export class Bbox {
     await this.processManager.onShutdown();
   }
 
-  private stageStart(service: Service, ctx: Ctx) {
+  private stageStartServiceIfNotStarted(service: Service, ctx: Ctx, dependency?: Dependency) {
     if (service.state.processStatus === ServiceProcessStatus.Online) {
       return;
     }
 
-    this.stageDependenciesIfDefined(service.dependencies, ctx);
-    this.stageAction(ctx, `Starting ${service.name}`, `start_service_${service.name}`, async () => {
-      await this.processManager.startAndWaitUntilStarted(service, ctx);
+    this.stageDependenciesIfDefined(service, ctx);
+    this.stageAction(ctx, `[${service.module.name}] Starting ${service.name} service`, `start_service_${service.name}`, dependency, async () => {
+      await this.runStartService(service, ctx);
     });
+  }
+
+  private async runStartService(service: Service, ctx: Ctx) {
+    const envValues = await this.evaluateEnvValues(service.module, service.spec.env, ctx);
+    await this.processManager.startAndWaitUntilStarted(service, envValues, ctx);
   }
 
   private stageValueAvailability(value: string, ctx: Ctx) {
@@ -480,7 +516,7 @@ export class Bbox {
 
     // TODO
     throw new Error('N/I');
-    this.stageStart(service, ctx);
+    this.stageStartServiceIfNotStarted(service, ctx);
   }
 
   private getValuePlaceholders(str) {
@@ -543,22 +579,23 @@ export class Bbox {
   //   ctx.stagedActions.push({module: {module, state}});
   // }
 
-  private stageAction(ctx: Ctx, name: string, hash: string, run: ActionFn) {
+  private stageAction(ctx: Ctx, name: string, hash: string, dependency: Dependency | undefined, run: ActionFn) {
     if (ctx.stagedActions.findIndex((action) => action.hash === hash) !== -1) {
       return;
     }
-    ctx.stagedActions.push({run, name, hash});
+    ctx.stagedActions.push({run, name, hash, dependency});
   }
 
-  stagePipeline(module: Module, pipelineName: string, force: boolean, ctx: Ctx) {
-    const {pipeline, state} = this.getPipeline(module, pipelineName);
+  stagePipeline(pipeline: Pipeline, force: boolean, ctx: Ctx, dependency?: Dependency) {
+    const module = pipeline.module;
+    const {state} = this.getPipeline(module, pipeline.name);
 
     const notAppliedSteps = this.getNotAppliedSteps(module, pipeline.spec, force);
     if (!force && state.ran && notAppliedSteps.length === 0) {
       return;
     }
 
-    this.stageDependenciesIfDefined(pipeline.dependencies, ctx);
+    this.stageDependenciesIfDefined(pipeline, ctx);
 
     for (const stepName of notAppliedSteps) {
       const pipelineStepSpec: PipelineStepSpec = pipeline.spec.steps[stepName];
@@ -568,42 +605,53 @@ export class Bbox {
         // TODO
         //this.stagePrompt(runSpec.prompt);
       }
-      this.stageDependenciesIfDefined(task.dependencies, ctx);
+      this.stageDependenciesIfDefined(task, ctx);
     }
 
-    this.stageAction(ctx, `Running pipeline ${pipeline.name}`, `run_pipeline_${module.name}_${pipeline.name}`, async () => {
+    this.stageAction(ctx, `[${pipeline.module.name}] Running pipeline ${pipeline.name}`, `run_pipeline_${module.name}_${pipeline.name}`, undefined, async () => {
       await this.runPipeline(module, pipeline, ctx);
     });
   }
 
-  stageDependenciesIfDefined(dependecies: Dependency[] | undefined, ctx: Ctx) {
-    if (!dependecies) {
+  stageDependenciesIfDefined(dependant: Service | Pipeline | Task, ctx: Ctx) {
+    if (!dependant.dependencies) {
       return;
     }
 
-    for (const dependency of dependecies) {
-      const dependencySpec = dependency.spec;
+    for (const dependency of dependant.dependencies) {
+      const target = dependency.target;
 
-      if (dependencySpec.task) {
-        const module = this.getModule(dependencySpec.module);
-        const {task, state} = this.getTask(module, dependencySpec.task);
-        if (!state.ran || dependencySpec.force) {
-          this.stageRunTask(module, task, ctx);
+      // if (dependency.spec.env) {
+      //   switch (dependant.type) {
+      //     case 'Service':
+      //       dependant.spec.env[dependency.spec.env] = async (params) => {
+      //         params.
+      //       }
+      //     case 'Task':
+      //       dependency.target.spec.env[dependency.spec.env] = returns;
+      //   }
+      // }
+
+      switch (target.type) {
+        case 'Service': {
+          this.stageStartServiceIfNotStarted(target, ctx, dependency);
+          break;
         }
-        continue;
-      }
-
-      if (dependencySpec.pipeline) {
-        const module = this.getModule(dependencySpec.module);
-        const {pipeline, state} = this.getPipeline(module, dependencySpec.pipeline);
-        if (!state.ran || dependencySpec.force) {
-          this.stagePipeline(module, pipeline.name, dependencySpec.force, ctx);
+        case 'Task': {
+          const {state} = this.getTask(target.module, target.name);
+          if (!state.ran || dependency.spec.force) {
+            this.stageRunTask(target, ctx, dependency);
+          }
+          break;
         }
-        continue;
+        case 'Pipeline': {
+          const {pipeline, state} = this.getPipeline(target.module, target.name);
+          if (!state.ran || dependency.spec.force) {
+            this.stagePipeline(pipeline, dependency.spec.force, ctx, dependency);
+          }
+          break;
+        }
       }
-
-      const service = this.getService(dependencySpec.service);
-      this.stageStart(service, ctx);
     }
   }
 
@@ -622,7 +670,7 @@ export class Bbox {
         continue;
       }
 
-      await this.runTask(module, task, ctx);
+      await this.runTask(task, ctx);
     }
 
     state.ran = true;
@@ -630,16 +678,17 @@ export class Bbox {
     this.fileManager.saveModuleState(module);
   }
 
-  private stageRunTask(module: Module, task: Task, ctx: Ctx) {
-    this.stageDependenciesIfDefined(task.dependencies, ctx);
+  private stageRunTask(task: Task, ctx: Ctx, dependency?: Dependency) {
+    this.stageDependenciesIfDefined(task, ctx);
 
-    this.stageAction(ctx, `Running task ${task.name} [${module.name}]`, `run_task_${module.name}_${task.name}`, async () => {
-      await this.runTask(module, task, ctx);
+    this.stageAction(ctx, `[${task.module.name}] Running task ${task.name}`, `run_task_${task.module.name}_${task.name}`, dependency, async () => {
+      await this.runTask(task, ctx);
     });
   }
 
-  private async runTask(module: Module, task: Task, ctx: Ctx) {
+  private async runTask(task: Task, ctx: Ctx) {
     const taskSpec = task.spec;
+    const module = task.module;
 
     const {state} = this.getTask(module, task.name);
 
@@ -673,70 +722,104 @@ export class Bbox {
 
     if (state.returns) {
       this.ui.print(`__Returns:__`);
-      this.ui.print(state.returns);
+      this.ui.print(JSON.stringify(state.returns, null, 2));
     }
 
     state.ran = true;
     this.fileManager.saveModuleState(module);
+
+    return {
+      returns: state.returns
+    }
   }
 
-  private async runInteractive(module: Module, runnable: RunnableSpec, env: EnvValuesSpec, ctx: Ctx): Promise<{output?: string, returns?: any}> {
+  private async runInteractive(module: Module, runnable: RunnableSpec, envValuesSpec: EnvValuesSpec, ctx: Ctx): Promise<{output?: string, returns?: any}> {
     let output: string = '';
     if (Array.isArray(runnable)) {
       for (const run of runnable) {
-        const ret = await this.runInteractive(module, run, env, ctx);
+        const ret = await this.runInteractive(module, run, envValuesSpec, ctx);
         output += ret.output;
       }
       return {output};
     }
 
-    try {
-      if (typeof runnable === 'function') {
-        const origEnvs = process.env;
-        shelljs.pushd(module.cwdAbsolutePath);
-        process.env = {
-          ...process.env,
-          ...env
+    const env = await this.getEnvValues(module, envValuesSpec, ctx);
+    while (true) {
+      try {
+        if (typeof runnable === 'function') {
+          return await this.runFunction(module, runnable, env, ctx);
         }
-        try {
-          const ret = await runnable({
-            bbox: this,
-            ctx: ctx,
-            module: module
-          });
-          return {returns: ret};
-        } finally {
-          shelljs.popd();
-          process.env = origEnvs;
+        const ret = await this.processManager.runInteractive(module, runnable, env, ctx);
+        output += ret.output;
+        return {output};
+      } catch (e) {
+        this.ui.print(`**Error when running:** \`${runnable}\``);
+        const ret = await this.ui.prompt<{ action: 's' | 'c' | 'r' }>({
+          questions: [
+            {
+              type: 'expand', name: 'action', default: 'r', message: 'Re-run, skip, cancel?',
+              choices: [
+                {name: 'Re-run', value: 'r', key: 'r'},
+                {name: 'Skip', value: 's', key: 's'},
+                {name: 'Cancel', value: 'c', key: 'c'}
+              ]
+            }
+          ]
+        });
+        switch (ret.action) {
+          case 's':
+            return {output: e.output};
+            break;
+          case 'r':
+            // just loop again
+            break;
+          default:
+            throw new Error(`Execution cancelled. Error: ${e.message}`);
         }
       }
+    }
+  }
 
-      const ret = await this.processManager.runInteractive(module, runnable, env, ctx);
-      output += ret.output;
-      return {output};
-    } catch (e) {
-      this.ui.print(`**Error when running:** \`${runnable}\``);
-      const ret = await this.ui.prompt<{action: 's' | 'c' | 'r'}>({
-        questions: [
-          {
-            type: 'expand', name: 'action', default: 'r', message: 'Re-run, skip, cancel?',
-            choices: [
-              {name: 'Re-run', value: 'r', key: 'r'},
-              {name: 'Skip', value: 's', key: 's'},
-              {name: 'Cancel', value: 'c', key: 'c'}
-            ]
-          }
-        ]
-      });
-      switch (ret.action) {
-        case 's':
-          return {output};
-          break;
-        case 'r':
-          return await this.runInteractive(module, runnable, env, ctx);
-        default:
-          throw e;
+  private async getEnvValues(module: Module, env: EnvValuesSpec, ctx) {
+    const envSpec = {
+      ...module.spec.env,
+      ...env
+    };
+    return this.evaluateEnvValues(module, envSpec, ctx);
+  }
+
+  private async evaluateEnvValues(module: Module, envValueSpec: EnvValuesSpec, ctx: Ctx): Promise<EnvValues> {
+    const env: EnvValues = {};
+    for (const name in envValueSpec) {
+      const spec = envValueSpec[name];
+      if (typeof spec === 'function') {
+        const {returns} = await this.runFunction(module, spec, {}, ctx);
+        env[name] = returns;
+        continue;
       }
+      env[name] = spec;
+    }
+
+    return env;
+  }
+
+  private async runFunction(module: Module, runnable: RunnableFn, env: EnvValues, ctx: Ctx) {
+    const origEnvs = process.env;
+    shelljs.pushd(module.cwdAbsolutePath);
+    process.env = {
+      ...process.env,
+      ...env
+    }
+    try {
+      const ret = await runnable({
+        bbox: this,
+        ctx: ctx,
+        module: module
+      });
+      return {returns: ret};
+    } finally {
+      shelljs.popd();
+      process.env = origEnvs;
     }
   }
 
