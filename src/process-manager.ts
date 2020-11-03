@@ -56,7 +56,7 @@ export class ProcessManager {
         break;
       }
 
-      console.log(`${service.name}: waiting to start the service`); // XXX
+      ctx.ui.print(`${service.name}: waiting to start the service`);
       await this.wait(1000);
     }
   }
@@ -104,7 +104,7 @@ export class ProcessManager {
       }
       const args = runArgs.join(' ');
       const cmd = `docker-compose ${args}`;
-      console.log('Starting process: ', cmd); // XXX
+      //console.log('Starting process: ', cmd); // XXX
       await pm2Start({
         cwd: ctx.projectOpts.rootPath,
         name: serviceSpec.name,
@@ -129,7 +129,7 @@ export class ProcessManager {
     }
 
     if (serviceSpec.healthCheck && serviceSpec.healthCheck.waitOn) {
-      console.log(`Waiting for the service health check: ${serviceSpec.healthCheck.waitOn.resources.join(', ')}`); // XXX
+      ctx.ui.print(`Waiting for the service health check: ${serviceSpec.healthCheck.waitOn.resources.join(', ')}`);
       await waitOn(serviceSpec.healthCheck.waitOn);
     }
   }
@@ -143,7 +143,7 @@ export class ProcessManager {
       return this.runInteractiveDocker(module, cmd, ctx, env);
     }
 
-    return this.runInteractiveLocal(module.cwdAbsolutePath, cmd, env);
+    return this.runInteractiveLocal(module.cwdAbsolutePath, cmd, env, ctx);
   }
 
   async run(module: Module, cmd: string, env: EnvValues, ctx: Ctx) {
@@ -190,7 +190,7 @@ export class ProcessManager {
   }
 
   private async runInteractiveDocker(module: Module, cmd: string, ctx: Ctx, env: EnvValues) {
-    return this.runInteractiveLocal(ctx.projectOpts.rootPath, this.createDockerComposeRunCmd(module, cmd, true, ctx, env), {});
+    return this.runInteractiveLocal(ctx.projectOpts.rootPath, this.createDockerComposeRunCmd(module, cmd, true, ctx, env), {}, ctx);
   }
 
   private createDockerComposeRunCmd(module: Module, cmd: string | undefined, interactive: boolean, ctx: Ctx, env: EnvValues) {
@@ -231,12 +231,12 @@ export class ProcessManager {
     return args;
   }
 
-  private async runInteractiveLocal(cwd: string, cmd: string, envValues: EnvValues): Promise<{output: string}> {
+  private async runInteractiveLocal(cwd: string, cmd: string, envValues: EnvValues, ctx: Ctx): Promise<{output: string}> {
     //console.log('runInteractiveLocal: ', cmd); // XXX
     // env must be set from process.env otherwise docker-compose won't work
     const env = {...process.env, ...this.escapeEnvValues(envValues)};
 
-    console.log('runInteractiveLocal', cmd); // XXX
+    //console.log('runInteractiveLocal', cmd); // XXX
 
     const output = [];
     return new Promise((resolve, reject) => {
@@ -244,12 +244,12 @@ export class ProcessManager {
         cwd,
         env,
         shell: true, //throws error without this
-        stdio: [process.stdin, 'pipe', process.stderr]
+        stdio: [ctx.ui.stdin, 'pipe', process.stderr]
       });
       child.stdout.setEncoding('utf8');
       child.stdout.on('data', (data) => {
         output.push(data);
-        process.stdout.write(data);
+        ctx.ui.stdout.write(data);
       });
       child.on('exit', (code, signal) => {
         const err: any = this.handleSpawnReturn(code, signal);

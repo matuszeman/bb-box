@@ -15,9 +15,10 @@ async function createBox() {
       rootPath,
       dockerComposePath: `${rootPath}/docker-compose.yml`,
     },
-    stagedActions: []
+    stagedActions: [],
+    ui: new Ui()
   }
-  const bbox = new Bbox(fileManager, processManager, new Ui());
+  const bbox = new Bbox(fileManager, processManager);
   await bbox.init(ctx);
   return {
     bbox,

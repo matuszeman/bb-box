@@ -18,7 +18,7 @@ export interface RunnableFnParams {
 export type RunnableFn = (params: RunnableFnParams) => Promise<any>;
 export type Runnable = string | RunnableFn;
 export type RunnableSpec = Runnable | Runnable[];
-export type ActionFn = () => Promise<any>;
+export type ActionFn = (ctx: Ctx) => Promise<any>;
 
 export type EntityType = 'Module' | 'Service' | 'Pipeline' | 'Task';
 export interface Entity {
@@ -147,7 +147,7 @@ export class TaskSpec {
   env?: EnvValuesSpec;
   dependencies?: DependenciesSpec;
   prompt?: PromptParams<any>;
-  returns: ({output: any}) => any;
+  returns?: ({output: any}) => any;
 }
 
 export class TasksSpec {
@@ -252,8 +252,9 @@ export interface BboxModule {
   beforeStatus?(bbox: Bbox, ctx: Ctx): Promise<any>;
 }
 
-export interface Ctx {
+export class Ctx {
   projectOpts: ProjectOpts
+  ui: Ui;
   stagedActions: {
     run: ActionFn;
     name: string;
@@ -337,8 +338,7 @@ export class Bbox {
 
   constructor(
     private fileManager: BboxDiscovery,
-    private processManager: ProcessManager,
-    private ui: Ui
+    private processManager: ProcessManager
   ) {
   }
 
@@ -403,7 +403,7 @@ export class Bbox {
   async stop(params: ServiceCommandParams, ctx: Ctx) {
     const service = await this.getService(params.service);
 
-    this.stageAction(ctx, `[${service.module.name}] Stopping ${service.name} service`, `stop_service_${service.name}`, undefined, async () => {
+    this.stageAction(ctx, `[${service.module.name}] Stopping ${service.name} service`, `stop_service_${service.name}`, undefined, async (ctx) => {
       await this.processManager.stopAndWaitUntilStopped(service, ctx);
     });
 
@@ -436,9 +436,105 @@ export class Bbox {
     // process.exit(0);
 
     for (const action of ctx.stagedActions) {
-      this.ui.print(action.name);
-      await action.run();
+      ctx.ui.print(action.name);
+      await action.run(ctx);
     }
+
+    // const tasks: ListrTask[] = [];
+    // ctx.stagedActions.forEach((staged) => {
+    //   tasks.push({
+    //     title: staged.name,
+    //     task: async (taskCtx, task): Promise<void> => {
+    //       //const stdout = task.stdout();
+    //       const ui = new Ui({
+    //         //stdout: stdout,
+    //         // TODO ??? strip didn't work?
+    //         //stdoutStripAnsi: true
+    //       });
+    //
+    //       while (true) {
+    //         try {
+    //           await staged.run({
+    //             stagedActions: [],
+    //             projectOpts: ctx.projectOpts,
+    //             ui
+    //           });
+    //           return;
+    //         } catch (e) {
+    //           console.log(e); // XXX
+    //           const ret = await ctx.ui.prompt<{ action: 's' | 'c' | 'r' }>({
+    //             questions: [
+    //               {
+    //                 type: 'expand', name: 'action', default: 'r', message: 'Re-run, skip, cancel?',
+    //                 choices: [
+    //                   {name: 'Re-run', value: 'r', key: 'r'},
+    //                   {name: 'Skip', value: 's', key: 's'},
+    //                   {name: 'Cancel', value: 'c', key: 'c'}
+    //                 ]
+    //               }
+    //             ]
+    //           });
+    //           switch (ret.action) {
+    //             case 's':
+    //               task.skip('TOODO SKIP MESSAGE');
+    //               break;
+    //             case 'r':
+    //               // just loop again
+    //               break;
+    //             default:
+    //               throw new Error(`Execution cancelled. Error: ${e.message}`);
+    //           }
+    //         }
+    //       }
+    //     },
+    //     options: {
+    //       // TODO it does not work with e.g. 10 lines, it breaks rendering and e.g. goes to new line e.g. with "npm i" command
+    //       //bottomBar: 1,
+    //     }
+    //   });
+    // });
+    //
+    // const runner = new Listr<TaskRunnerCtx>(tasks, {
+    //   concurrent: false
+    // });
+    // try {
+    //   await runner.run();
+    // } finally {
+    //   //console.log = origConsoleLog;
+    // }
+
+    // for (const action of ctx.stagedActions) {
+    //   ctx.ui.print(action.name);
+    //   while (true) {
+    //     try {
+    //       await action.run(ctx);
+    //       break;
+    //     } catch (e) {
+    //       const ret = await ctx.ui.prompt<{ action: 's' | 'c' | 'r' }>({
+    //         questions: [
+    //           {
+    //             type: 'expand', name: 'action', default: 'r', message: 'Re-run, skip, cancel?',
+    //             choices: [
+    //               {name: 'Re-run', value: 'r', key: 'r'},
+    //               {name: 'Skip', value: 's', key: 's'},
+    //               {name: 'Cancel', value: 'c', key: 'c'}
+    //             ]
+    //           }
+    //         ]
+    //       });
+    //       if (ret.action === 'c') {
+    //         throw new Error(`Execution cancelled. Error: ${e.message}`);
+    //       }
+    //       if (ret.action === 's') {
+    //         break;
+    //       }
+    //       if (ret.action === 'r') {
+    //         continue;
+    //       }
+    //       throw new Error(`Unhandled prompt value: ${ret.action}`);
+    //     }
+    //   }
+    // }
   }
 
   async provideValue(valueName, ctx) {
@@ -474,7 +570,7 @@ export class Bbox {
       table += `${service.name} | ${service.module.name} | ${status} `
         + ` | ${service.module.runtime} | ${service.module.availableRuntimes.join(', ')}|\n`;
     }
-    this.ui.print(table);
+    ctx.ui.print(table);
   }
 
   private boolToEmoji(bool: boolean) {
@@ -491,7 +587,7 @@ export class Bbox {
     }
 
     this.stageDependenciesIfDefined(service, ctx);
-    this.stageAction(ctx, `[${service.module.name}] Starting ${service.name} service`, `start_service_${service.name}`, dependency, async () => {
+    this.stageAction(ctx, `[${service.module.name}] Starting ${service.name} service`, `start_service_${service.name}`, dependency, async (ctx) => {
       await this.runStartService(service, ctx);
     });
   }
@@ -499,40 +595,6 @@ export class Bbox {
   private async runStartService(service: Service, ctx: Ctx) {
     const envValues = await this.evaluateEnvValues(service.module, service.spec.env, ctx);
     await this.processManager.startAndWaitUntilStarted(service, envValues, ctx);
-  }
-
-  private stageValueAvailability(value: string, ctx: Ctx) {
-    const [serviceName, providerName] = value.split('.');
-    const service = this.getService(serviceName);
-    const serviceSpec = service.spec;
-
-    if (serviceSpec.values && serviceSpec.values[providerName]) {
-      return;
-    }
-
-    if (!serviceSpec.valueProviders || !serviceSpec.valueProviders[providerName]) {
-      throw new Error(`Value provider ${providerName} not found`);
-    }
-
-    // TODO
-    throw new Error('N/I');
-    this.stageStartServiceIfNotStarted(service, ctx);
-  }
-
-  private getValuePlaceholders(str) {
-    const regex = /\[(.*?)\]/gm;
-    let m;
-
-    const ret = [];
-    while ((m = regex.exec(str)) !== null) {
-      // This is necessary to avoid infinite loops with zero-width matches
-      if (m.index === regex.lastIndex) {
-        regex.lastIndex++;
-      }
-      ret.push(m[1]);
-    }
-
-    return ret;
   }
 
   async provideValues(values: {[key: string]: string}, ctx) {
@@ -608,7 +670,8 @@ export class Bbox {
       this.stageDependenciesIfDefined(task, ctx);
     }
 
-    this.stageAction(ctx, `[${pipeline.module.name}] Running pipeline ${pipeline.name}`, `run_pipeline_${module.name}_${pipeline.name}`, undefined, async () => {
+    this.stageAction(ctx, `[${pipeline.module.name}] Running pipeline ${pipeline.name}`,
+      `run_pipeline_${module.name}_${pipeline.name}`, undefined, async (ctx) => {
       await this.runPipeline(module, pipeline, ctx);
     });
   }
@@ -681,7 +744,8 @@ export class Bbox {
   private stageRunTask(task: Task, ctx: Ctx, dependency?: Dependency) {
     this.stageDependenciesIfDefined(task, ctx);
 
-    this.stageAction(ctx, `[${task.module.name}] Running task ${task.name}`, `run_task_${task.module.name}_${task.name}`, dependency, async () => {
+    this.stageAction(ctx, `[${task.module.name}] Running task ${task.name}`,
+      `run_task_${task.module.name}_${task.name}`, dependency, async (ctx) => {
       await this.runTask(task, ctx);
     });
   }
@@ -698,9 +762,9 @@ export class Bbox {
     if (taskSpec.prompt) {
       const promptParams: PromptParams<any> = {
         questions: taskSpec.prompt.questions,
-        initialAnswers: taskSpec.prompt
+        initialAnswers: state.prompt
       }
-      const prompt = await this.ui.prompt(promptParams);
+      const prompt = await ctx.ui.prompt(promptParams);
       env['bbox_prompt'] = JSON.stringify(prompt);
       for (const question of taskSpec.prompt.questions as ReadonlyArray<any>) {
         if (question.env) {
@@ -708,7 +772,8 @@ export class Bbox {
         }
       }
 
-      taskSpec.prompt = prompt;
+      state.prompt = prompt;
+      this.fileManager.saveModuleState(module);
     }
 
     if (taskSpec.run) {
@@ -721,8 +786,8 @@ export class Bbox {
     }
 
     if (state.returns) {
-      this.ui.print(`__Returns:__`);
-      this.ui.print(JSON.stringify(state.returns, null, 2));
+      ctx.ui.print(`__Returns:__`);
+      ctx.ui.print(JSON.stringify(state.returns, null, 2));
     }
 
     state.ran = true;
@@ -753,8 +818,10 @@ export class Bbox {
         output += ret.output;
         return {output};
       } catch (e) {
-        this.ui.print(`**Error when running:** \`${runnable}\``);
-        const ret = await this.ui.prompt<{ action: 's' | 'c' | 'r' }>({
+        // TODO until stagePipeline is not implemented to stage tasks too, we need to have this here,
+        // TODO otherwise skip would cancel whole pipeline in #executeStaged
+        ctx.ui.print(`**Error when running:** \`${runnable}\``);
+        const ret = await ctx.ui.prompt<{ action: 's' | 'c' | 'r' }>({
           questions: [
             {
               type: 'expand', name: 'action', default: 'r', message: 'Re-run, skip, cancel?',
