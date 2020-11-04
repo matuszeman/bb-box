@@ -8,6 +8,11 @@ import {BboxDiscovery} from './bbox-discovery';
 import {PromptParams, Ui} from './ui';
 import * as shelljs from 'shelljs';
 import {Cli} from './cli';
+import {Listr, ListrContext, ListrTask} from 'listr2';
+
+export interface TaskRunnerCtx {
+
+}
 
 export interface RunnableFnParams {
   bbox: Bbox;

@@ -4,13 +4,22 @@ import {ModuleSpec, RunnableFnParams} from '../../bbox';
 
 const config: ModuleSpec = {
   name: 'bbox-proxy',
+  pipelines: {
+    configure: {
+      steps: {
+        '10Configure': {
+          task: 'configure'
+        }
+      }
+    }
+  },
   tasks: {
     configure: {
       run: async function bboxProxyConfigure(params: RunnableFnParams) {
-        const {bbox, ctx} = params;
-        const proxyService = await bbox.getService('bbox-proxy');
+        const {bbox} = params;
 
-        const domain = await bbox.provideValue('bbox.domain', ctx);
+        const proxyService = await bbox.getService('bbox-proxy');
+        const domain = process.env.domain;
         const hostIp = process.env.hostIp ?? '127.0.0.1';
 
         const modules = bbox.getAllModules();
@@ -61,7 +70,7 @@ const config: ModuleSpec = {
       prompt: {
         questions: [
           {type: 'input', name: 'hostIp', message: 'Host IP', env: 'hostIp', default: '127.0.0.1'},
-          {type: 'input', name: 'domain', message: 'Domain', env: 'hostIp', default: 'local.garden.app'},
+          {type: 'input', name: 'domain', message: 'Domain', env: 'domain', default: '127.0.0.1.xip.io'},
         ]
       }
     }
