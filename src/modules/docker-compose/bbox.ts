@@ -30,10 +30,12 @@ const config: ModuleSpec = {
         const dockerHostIp = process.env.dockerHostIp;
 
         const modules = bbox.getAllModules();
-        const dockerComposeModules = modules.filter((module) => module.availableRuntimes.includes(Runtime.Docker));
 
         const proxiedServices: { name: string, port?: number, domainName: string, ip: string }[] = [];
-        for (const module of dockerComposeModules) {
+        for (const module of modules) {
+          if (module.name === 'bbox-proxy') {
+            continue;
+          }
           for (const srv of Object.values(module.services)) {
             const service = srv.spec;
             if (service.port) {
@@ -68,6 +70,8 @@ const config: ModuleSpec = {
           //extra_hosts.push(`${service.name}:${service.ip}`);
           extra_hosts.push(`${service.domainName}:${service.ip}`);
         }
+
+        const dockerComposeModules = modules.filter((module) => module.availableRuntimes.includes(Runtime.Docker));
         for (const mod of dockerComposeModules) {
           const moduleSpec = mod.spec;
           const moduleFolderPath = `./${mod.path}`;
