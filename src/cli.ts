@@ -10,7 +10,7 @@ function runCommandOpts(bbox: Bbox, ctx: Ctx, handler) {
   return async (command: Command) => {
     try {
       await handler.bind(bbox)(command.opts(), ctx);
-      await bbox.status({}, ctx);
+      //await bbox.status({}, ctx);
     } catch(e) {
       console.error(e); //XXX
     }
@@ -25,7 +25,7 @@ function runServiceCommand(bbox: Bbox, ctx: Ctx, handler) {
         ...command.opts()
       };
       await handler.bind(bbox)(commandParams, ctx);
-      await bbox.status({}, ctx);
+      //await bbox.status({}, ctx);
     } catch(e) {
       console.error(e); //XXX
     }
@@ -37,7 +37,7 @@ function runCommand(bbox: Bbox, ctx: Ctx, handler, paramsHandler) {
     try {
       const params = paramsHandler(...arguments);
       await handler.bind(bbox)(params, ctx);
-      await bbox.status({}, ctx);
+      //await bbox.status({}, ctx);
     } catch(e) {
       console.error(e); //XXX
     }
@@ -62,18 +62,32 @@ export class Cli {
     createServiceCommand(program, 'stop')
       .action(runServiceCommand(bbox, ctx, bbox.stop));
 
-    createServiceCommand(program, 'value')
-      .action(runServiceCommand(bbox, ctx, bbox.value));
-
-    program.command('status').aliases(['list', 'ls'])
+    program.command('status').aliases(['ps'])
       .action(runCommandOpts(bbox, ctx, bbox.status));
 
     createServiceCommand(program, 'test')
       .action(runServiceCommand(bbox, ctx, bbox.test));
 
+    program.command('pipeline <service>')
+      .aliases(['pi'])
+      .action(runCommand(bbox, ctx, bbox.listPipelines, (service) => ({ service })))
+
+    program.command('configure <service>')
+      .action(runCommand(bbox, ctx, bbox.pipeline, (service) => ({ service, pipeline: 'configure' })))
+
+    program.command('build <service>')
+      .action(runCommand(bbox, ctx, bbox.pipeline, (service) => ({ service, pipeline: 'build' })))
+
+    program.command('initialize <service>')
+      .action(runCommand(bbox, ctx, bbox.pipeline, (service) => ({ service, pipeline: 'initialize' })))
+
     program.command('pipeline <service> <pipeline>')
-      .aliases(['p'])
+      .aliases(['pi'])
       .action(runCommand(bbox, ctx, bbox.pipeline, (service, pipeline) => ({ service, pipeline })))
+
+    program.command('task <service>')
+      .aliases(['ta'])
+      .action(runCommand(bbox, ctx, bbox.listTasks, (service) => ({ service })))
 
     program.command('task <service> <task>')
       .action(runCommand(bbox, ctx, bbox.task, (service, task) => ({ service, task })))
