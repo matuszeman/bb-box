@@ -287,7 +287,7 @@ export class ProcessManager {
       return new Error('User interrupted');
     }
     if (status !== null && status !== 0) {
-      return new Error(`Spawned process returned error code: ${status}`);
+      return new Error(`Spawned process returned error code: ${status}, signal: ${signal}`);
     }
   }
 

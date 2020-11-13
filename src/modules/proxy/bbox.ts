@@ -2,13 +2,32 @@ import {ProxyConfig} from './proxy-server';
 import * as fs from 'fs';
 import {ModuleSpec, RunnableFnParams} from '../../bbox';
 
+const moduleName = 'bbox-proxy';
+
 const config: ModuleSpec = {
-  name: 'bbox-proxy',
+  name: moduleName,
+  onModuleRegistered: async (params) => {
+    for (const name in params.registeredModule.services) {
+      const serviceSpec = params.registeredModule.services[name].spec;
+      if (!serviceSpec.env) {
+        serviceSpec.env = {};
+      }
+      serviceSpec.env.BBOX_PROXY_DOMAIN = async ({getTaskReturnValue}) => {
+        return getTaskReturnValue('configure', moduleName).domain;
+      }
+    }
+    // params.registeredModule.docker.volumes['bboxProxyCaPath'] = {
+    //   hostPath: params.bbox.
+    // }
+  },
   pipelines: {
     configure: {
       steps: {
         '10Configure': {
           task: 'configure'
+        },
+        '20CreateCertificate': {
+          task: 'CreateMkcert'
         }
       }
     }
@@ -20,13 +39,13 @@ const config: ModuleSpec = {
 
         const proxyService = await bbox.getService('bbox-proxy');
         const domain = process.env.domain;
-        const hostIp = process.env.hostIp ?? '127.0.0.1';
+        const hostIp = process.env.hostIp;
 
         const modules = bbox.getAllModules();
 
         const proxiedServices: { name: string, port?: number, domainName: string, ip: string }[] = [];
         for (const module of modules) {
-          if (module.name === 'bbox-proxy') {
+          if (module.name === moduleName) {
             continue;
           }
 
@@ -66,11 +85,41 @@ const config: ModuleSpec = {
           forward
         }
         fs.writeFileSync(`${proxyService.module.bboxPath}/proxy-config.json`, JSON.stringify(proxyConfig, null, 2));
+
+        return {
+          hostIp,
+          domain
+        }
       },
       prompt: {
         questions: [
           {type: 'input', name: 'hostIp', message: 'Host IP', env: 'hostIp', default: '127.0.0.1'},
           {type: 'input', name: 'domain', message: 'Domain', env: 'domain', default: '127.0.0.1.xip.io'},
+        ]
+      }
+    },
+    CreateMkcert: {
+      run: async ({module, getTaskReturnValue, run}) => {
+        if (!process.env.create) {
+          return;
+        }
+        const {domain} = getTaskReturnValue('configure');
+        const {output: caPath} = await run('mkcert -CAROOT');
+        const certKeyPath = `${process.cwd()}/state/cert.key`;
+        const certCrtPath = `${process.cwd()}/state/cert.crt`;
+        await run(`mkcert -key-file ${certKeyPath} -cert-file ${certCrtPath} ${domain} "*.${domain}"`);
+        return {
+          caPath: `${caPath.trim()}/rootCA.pem`,
+          crtPath: certCrtPath,
+          keyPath: certKeyPath
+        }
+      },
+      dependencies: [
+        {task: 'configure'}
+      ],
+      prompt: {
+        questions: [
+          {type: 'confirm', name: 'create', message: 'Should I create local certificate using mkcert?', env: 'create'},
         ]
       }
     }
@@ -88,7 +137,14 @@ const config: ModuleSpec = {
         }
       },
       start: 'node proxy-server.js',
-      dependencies: [{task: 'configure'}]
+      dependencies: [
+        { task: 'configure' }
+      ],
+      env: {
+        NODE_EXTRA_CA_CERTS: ({getTaskReturnValue}) => {
+          return getTaskReturnValue('CreateMkcert').caPath;
+        }
+      }
     }
   }
 }

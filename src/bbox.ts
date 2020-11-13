@@ -18,6 +18,8 @@ export interface RunnableFnParams {
   bbox: Bbox;
   ctx: Ctx;
   module: Module;
+  getTaskReturnValue: (taskName: string, moduleName?: string) => any;
+  run: (cmd: string) => Promise<{output: string}>;
 }
 
 export type RunnableFn = (params: RunnableFnParams) => Promise<any>;
@@ -29,6 +31,14 @@ export type EntityType = 'Module' | 'Service' | 'Pipeline' | 'Task';
 export interface Entity {
   type: EntityType;
   name: string;
+}
+
+export class HookSpec {
+  run?: RunnableSpec;
+  env?: EnvValuesSpec;
+  resetTasks?: string[];
+  resetPipelines?: string[];
+  resetPipelinesWithTasks?: string[];
 }
 
 export interface DependantEntity extends Entity {
@@ -151,6 +161,7 @@ export class TaskSpec {
   dependencies?: DependenciesSpec;
   prompt?: PromptParams<any>;
   returns?: ({output: any}) => any;
+  onRan?: HookSpec;
 }
 
 export class TasksSpec {
@@ -181,6 +192,7 @@ export class PipelineStepsSpec {
 export class PipelineSpec {
   steps: PipelineStepsSpec;
   dependencies?: DependenciesSpec;
+  onRan?: HookSpec;
 }
 
 export class PipelinesSpec {
@@ -216,6 +228,8 @@ export class ModuleSpec {
   tasks?: TasksSpec;
   //migrations?: {[key: string]: RunnableSpec};
   env?: {[key: string]: any};
+  // internal
+  onModuleRegistered?: (params: {bbox: Bbox, registeredModule: Module, ctx: Ctx}) => Promise<any>;
 }
 
 export type DockerVolumes = {
@@ -303,8 +317,8 @@ export class ListTasksParams {
 }
 
 export class ShellParams {
-  @jf.string().optional()
-  todo?: string;
+  @jf.string().required()
+  service: string;
 }
 
 export class ListCommandParams {
@@ -357,6 +371,18 @@ export class Bbox {
 
   async init(ctx: Ctx) {
     this.modules = await this.loadAllModules(ctx);
+
+    for (const module of this.modules) {
+      if (module.spec.onModuleRegistered) {
+        for (const registeredModule of this.modules) {
+          if (registeredModule === module) {
+            continue;
+          }
+          await module.spec.onModuleRegistered({bbox: this, registeredModule, ctx});
+        }
+      }
+    }
+
     this.services = [];
 
     for (const module of this.modules) {
@@ -411,6 +437,13 @@ export class Bbox {
   }
 
   @validateParams()
+  async shell(params: ShellParams, ctx: Ctx) {
+    const service = this.getService(params.service);
+    const module = service.module;
+    await this.runInteractive(module, 'bash', {}, ctx);
+  }
+
+  @validateParams()
   async start(params: ServiceCommandParams, ctx: Ctx) {
     const service = this.getService(params.service);
 
@@ -420,12 +453,20 @@ export class Bbox {
   }
 
   @validateParams()
+  async restart(params: ServiceCommandParams, ctx: Ctx) {
+    const service = this.getService(params.service);
+
+    this.stageStopService(service, ctx);
+    this.stageStartService(service, ctx);
+
+    await this.executeStaged(ctx);
+  }
+
+  @validateParams()
   async stop(params: ServiceCommandParams, ctx: Ctx) {
     const service = await this.getService(params.service);
 
-    this.stageAction(ctx, `# [${service.module.name}] Stopping ${service.name} service`, `stop_service_${service.name}`, undefined, async (ctx) => {
-      await this.processManager.stopAndWaitUntilStopped(service, ctx);
-    });
+    this.stageStopService(service, ctx);
 
     await this.executeStaged(ctx);
   }
@@ -436,7 +477,7 @@ export class Bbox {
     const module = service.module;
     const task = module.tasks[params.task];
     if (!task) {
-      throw new Error(`Task "${task.name}" not found`);
+      throw new Error(`Task "${params.task}" not found`);
     }
 
     this.stageRunTask(task, ctx);
@@ -450,14 +491,24 @@ export class Bbox {
     ctx.ui.print(`__${module.name} tasks:__\n${Object.values(module.tasks).map(task => `- ${task.name}`).join('\n')}`);
   }
 
+  @validateParams()
+  async status(params: ListCommandParams, ctx: Ctx) {
+    let table = 'Service️| Module | State | Runtime | Avail. runtimes\n' +
+      '------- | ------ | ----- | --------| ---------------\n';
+    for (const service of this.services) {
+      const status = await this.getServiceProcessStatus(service, ctx);
+      table += `${service.name} | ${service.module.name} | ${status} `
+        + ` | ${service.module.runtime} | ${service.module.availableRuntimes.join(', ')}|\n`;
+    }
+    ctx.ui.print(table);
+  }
+
   private async executeStaged(ctx: Ctx) {
-    // ctx.stagedActions.forEach((staged) => {
-    //   console.log(staged.name, staged.dependency); // XXX
-    // })
-    // process.exit(0);
+    ctx.ui.print(`# Actions to run:\n${ctx.stagedActions.map((item) => `- ${item.name}`).join('\n')}`);
+    //process.exit(0);
 
     for (const action of ctx.stagedActions) {
-      ctx.ui.print(action.name);
+      ctx.ui.print(`# ${action.name}`);
       await action.run(ctx);
     }
 
@@ -558,18 +609,6 @@ export class Bbox {
     // }
   }
 
-  @validateParams()
-  async status(params: ListCommandParams, ctx: Ctx) {
-    let table = 'Service️| Module | State | Runtime | Avail. runtimes\n' +
-                '------- | ------ | ----- | --------| ---------------\n';
-    for (const service of this.services) {
-      const status = await this.getServiceProcessStatus(service, ctx);
-      table += `${service.name} | ${service.module.name} | ${status} `
-        + ` | ${service.module.runtime} | ${service.module.availableRuntimes.join(', ')}|\n`;
-    }
-    ctx.ui.print(table);
-  }
-
   private boolToEmoji(bool: boolean) {
       return bool ? '✔' : ' ';
   }
@@ -583,13 +622,31 @@ export class Bbox {
       return;
     }
 
+    this.stageStartService(service, ctx, dependency);
+  }
+
+  private stageStartService(service: Service, ctx: Ctx, dependency?: Dependency) {
     this.stageDependenciesIfDefined(service, ctx);
-    this.stageAction(ctx, `# [${service.module.name}] Starting ${service.name} service`, `start_service_${service.name}`, dependency, async (ctx) => {
+    if (!service.spec.start) {
+      return;
+    }
+    this.stageAction(ctx, `[${service.module.name}] Start ${service.name} service`, `start_service_${service.name}`, dependency, async (ctx) => {
       await this.runStartService(service, ctx);
     });
   }
 
   private async runStartService(service: Service, ctx: Ctx) {
+    const envValues = await this.evaluateEnvValues(service.module, service.spec.env, ctx);
+    await this.processManager.startAndWaitUntilStarted(service, envValues, ctx);
+  }
+
+  private stageStopService(service: Service, ctx: Ctx) {
+    this.stageAction(ctx, `[${service.module.name}] Stop ${service.name} service`, `stop_service_${service.name}`, undefined, async (ctx) => {
+      await this.runStopService(service, ctx);
+    });
+  }
+
+  private async runStopService(service: Service, ctx: Ctx) {
     const envValues = await this.evaluateEnvValues(service.module, service.spec.env, ctx);
     await this.processManager.startAndWaitUntilStarted(service, envValues, ctx);
   }
@@ -601,11 +658,11 @@ export class Bbox {
     ctx.stagedActions.push({run, name, hash, dependency});
   }
 
-  stagePipeline(pipeline: Pipeline, force: boolean, ctx: Ctx, dependency?: Dependency) {
+  private stagePipeline(pipeline: Pipeline, force: boolean, ctx: Ctx, dependency?: Dependency) {
     const module = pipeline.module;
     const {state} = this.getPipeline(module, pipeline.name);
 
-    const notAppliedSteps = this.getNotAppliedSteps(module, pipeline.spec, force);
+    const notAppliedSteps = this.getNotAppliedSteps(module, pipeline.spec, force || !state.ran);
     if (!force && state.ran && notAppliedSteps.length === 0) {
       return;
     }
@@ -636,14 +693,14 @@ export class Bbox {
 
     if (isAtLeastOneTaskStaged) {
       let entity = `${pipeline.module.name} / ${pipeline.name}`;
-      this.stageAction(ctx, `# [${entity}] Storing pipeline state`,
+      this.stageAction(ctx, `[${entity}] Storing pipeline state`,
         `run_pipeline_${module.name}_${pipeline.name}`, undefined, async (ctx) => {
           await this.runPipeline(module, pipeline, ctx);
         });
     }
   }
 
-  stageDependenciesIfDefined(dependant: Service | Pipeline | Task, ctx: Ctx) {
+  private stageDependenciesIfDefined(dependant: Service | Pipeline | Task, ctx: Ctx) {
     if (!dependant.dependencies) {
       return;
     }
@@ -688,6 +745,10 @@ export class Bbox {
   private async runPipeline(module: Module, pipeline: Pipeline, ctx: Ctx) {
     const {state} = this.getPipeline(module, pipeline.name);
 
+    if (pipeline.spec.onRan) {
+      await this.runHook(module, pipeline.spec.onRan, ctx);
+    }
+
     state.ran = true;
     state.lastRanAt = new Date().toISOString();
     this.fileManager.saveModuleState(module);
@@ -701,10 +762,17 @@ export class Bbox {
       entity += ` / ${pipeline.name}`;
     }
 
-    this.stageAction(ctx, `# [${entity}] Running task ${task.name}`,
+    this.stageAction(ctx, `[${entity}] Running task ${task.name}`,
       `run_task_${task.module.name}_${task.name}`, dependency, async (ctx) => {
       await this.runTask(task, ctx);
     });
+
+    if (task.spec.onRan) {
+      this.stageAction(ctx, `[${entity}] Running task ${task.name} hook: onRan`,
+        `run_task_hook_onRan_${task.module.name}_${task.name}`, dependency, async (ctx) => {
+          await this.runHook(task.module, task.spec.onRan, ctx);
+      });
+    }
   }
 
   private async runTask(task: Task, ctx: Ctx) {
@@ -755,6 +823,40 @@ export class Bbox {
     }
   }
 
+  private async runHook(module: Module, hookSpec: HookSpec, ctx: Ctx) {
+    if (hookSpec.resetTasks) {
+      ctx.ui.print(`__Resetting tasks:__ ${hookSpec.resetTasks.join(', ')}`);
+      for (const taskName of hookSpec.resetTasks) {
+        const {state} = this.getTask(module, taskName);
+        state.ran = false;
+      }
+    }
+    if (hookSpec.resetPipelines) {
+      ctx.ui.print(`__Resetting pipelines:__ ${hookSpec.resetPipelines.join(', ')}`);
+      for (const pipelineName of hookSpec.resetPipelines) {
+        const {state} = this.getPipeline(module, pipelineName);
+        state.ran = false;
+      }
+    }
+    if (hookSpec.resetPipelinesWithTasks) {
+      ctx.ui.print(`__Resetting pipelines with tasks:__ ${hookSpec.resetPipelinesWithTasks.join(', ')}`);
+      for (const pipelineName of hookSpec.resetPipelinesWithTasks) {
+        const {state} = this.getPipeline(module, pipelineName);
+        state.ran = false;
+
+        for (const stepName of Object.keys(module.pipelines[pipelineName].spec.steps)) {
+          const taskName = module.pipelines[pipelineName].spec.steps[stepName].task;
+          const {state} = this.getTask(module, taskName);
+          state.ran = false;
+        }
+      }
+    }
+    if (hookSpec.run) {
+      await this.runInteractive(module, hookSpec.run, hookSpec.env, ctx);
+    }
+    this.fileManager.saveModuleState(module);
+  }
+
   private async runInteractive(module: Module, runnable: RunnableSpec, envValuesSpec: EnvValuesSpec, ctx: Ctx): Promise<{output?: string, returns?: any}> {
     let output: string = '';
     if (Array.isArray(runnable)) {
@@ -769,7 +871,7 @@ export class Bbox {
     while (true) {
       try {
         if (typeof runnable === 'function') {
-          ctx.ui.print(`__Running:__ implemented as function in bbox file`);
+          ctx.ui.print(`__Running:__ [function]`);
           return await this.runFunction(module, runnable, env, ctx);
         }
         ctx.ui.print(`__Running:__ \`${runnable}\``);
@@ -780,6 +882,7 @@ export class Bbox {
         // TODO until stagePipeline is not implemented to stage tasks too, we need to have this here,
         // TODO otherwise skip would cancel whole pipeline in #executeStaged
         ctx.ui.print(`**Error when running:** \`${runnable}\``);
+        ctx.ui.print(e.message);
         const ret = await ctx.ui.prompt<{ action: 's' | 'c' | 'r' }>({
           questions: [
             {
@@ -831,7 +934,7 @@ export class Bbox {
 
   private async runFunction(module: Module, runnable: RunnableFn, env: EnvValues, ctx: Ctx) {
     const origEnvs = process.env;
-    shelljs.pushd(module.cwdAbsolutePath);
+    shelljs.pushd('-q', module.cwdAbsolutePath);
     process.env = {
       ...process.env,
       ...env
@@ -840,11 +943,23 @@ export class Bbox {
       const ret = await runnable({
         bbox: this,
         ctx: ctx,
-        module: module
+        module: module,
+        getTaskReturnValue: (taskName: string, moduleName?: string) => {
+          let taskModule = moduleName ? this.getModule(moduleName) : module;
+          const {state} = this.getTask(taskModule, taskName);
+          if (typeof state.returns === 'undefined') {
+            throw new Error(`No return value for task ${taskName} in module ${moduleName}`);
+          }
+          return state.returns;
+        },
+        run: async (cmd: string) => {
+          const ret = await this.runInteractive(module, cmd, process.env, ctx);
+          return {output: ret.output};
+        },
       });
       return {returns: ret};
     } finally {
-      shelljs.popd();
+      shelljs.popd('-q');
       process.env = origEnvs;
     }
   }
@@ -871,7 +986,7 @@ export class Bbox {
   private getTask(module: Module, taskName: string) {
     const task = module.tasks[taskName];
     if (!task) {
-      throw new Error(`Task ${task} not found`);
+      throw new Error(`Task ${taskName} not found.`);
     }
     if (!module.state.tasks[taskName]) {
       module.state.tasks[taskName] = {ran: false};
@@ -882,7 +997,7 @@ export class Bbox {
   private getPipeline(module: Module, name: string) {
     const pipeline = module.pipelines[name];
     if (!pipeline) {
-      throw new Error(`Pipeline ${pipeline.name} not found`);
+      throw new Error(`Pipeline ${name} not found`);
     }
     if (!module.state.pipelines[name]) {
       module.state.pipelines[name] = {ran: false};
@@ -894,7 +1009,7 @@ export class Bbox {
     const modules = this.getAllModules();
     const module = modules.find((module) => module.name === name);
     if (!module) {
-      throw new Error(`Module "${name}" not found. All discovered modules: ${modules.map(m => m.name).join(', ')}`);
+      throw new Error(`Module "${name}" not found. Available modules: ${modules.map(m => m.name).join(', ')}`);
     }
     return module;
   }
@@ -905,7 +1020,7 @@ export class Bbox {
       return service;
     }
 
-    throw new Error(`Service "${serviceName}" not found.`);
+    throw new Error(`Service "${serviceName}" not found. Available services: ${this.services.map((service) => service.name).join(', ')}`);
   }
 
   getAllModules() {

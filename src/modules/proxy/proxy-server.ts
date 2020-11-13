@@ -8,8 +8,8 @@ export interface ProxyConfig {
 
 const configPath = process.env.BBOX_PATH;
 const configFilePath = `${configPath}/proxy-config.json`;
-const certPath = `${configPath}/certs/cert.crt`;
-const keyPath = `${configPath}/certs/cert.key`;
+const certPath = `${configPath}/state/cert.crt`;
+const keyPath = `${configPath}/state/cert.key`;
 const config: ProxyConfig = require(configFilePath);
 
 console.log(`============================================`); // XXX
@@ -19,6 +19,7 @@ console.log(`HTTP port: ${config.httpPort}`); // XXX
 console.log(`HTTPS port: ${config.httpsPort}`); // XXX
 console.log(`Cert path: ${certPath}`); // XXX
 console.log(`Cert key path: ${keyPath}`); // XXX
+console.log(`CA path: ${process.env.NODE_EXTRA_CA_CERTS}`); // XXX
 console.log(`Forwarding rules:`); // XXX
 
 const proxy = redbird({
@@ -34,7 +35,5 @@ const proxy = redbird({
 
 for (const domain in config.forward) {
   console.log(`http[s]://${domain} -> ${config.forward[domain]}`); // XXX
-  proxy.register(domain, config.forward[domain], {
-    ssl: true
-  });
+  proxy.register(domain, config.forward[domain]);
 }
