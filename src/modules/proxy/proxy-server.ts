@@ -25,6 +25,7 @@ console.log(`Forwarding rules:`); // XXX
 const proxy = redbird({
   port: config.httpPort,
   //xfwd: false,
+  //secure: false,
   ssl: {
     http2: true,
     port: config.httpsPort,
@@ -34,6 +35,6 @@ const proxy = redbird({
 });
 
 for (const domain in config.forward) {
-  console.log(`http[s]://${domain} -> ${config.forward[domain]}`); // XXX
+  console.log(`https://${domain} -> ${config.forward[domain]}`); // XXX
   proxy.register(domain, config.forward[domain]);
 }

@@ -627,9 +627,7 @@ export class Bbox {
 
   private stageStartService(service: Service, ctx: Ctx, dependency?: Dependency) {
     this.stageDependenciesIfDefined(service, ctx);
-    if (!service.spec.start) {
-      return;
-    }
+
     this.stageAction(ctx, `[${service.module.name}] Start ${service.name} service`, `start_service_${service.name}`, dependency, async (ctx) => {
       await this.runStartService(service, ctx);
     });
@@ -647,8 +645,7 @@ export class Bbox {
   }
 
   private async runStopService(service: Service, ctx: Ctx) {
-    const envValues = await this.evaluateEnvValues(service.module, service.spec.env, ctx);
-    await this.processManager.startAndWaitUntilStarted(service, envValues, ctx);
+    await this.processManager.stopAndWaitUntilStopped(service, ctx);
   }
 
   private stageAction(ctx: Ctx, name: string, hash: string, dependency: Dependency | undefined, run: ActionFn) {
@@ -701,10 +698,6 @@ export class Bbox {
   }
 
   private stageDependenciesIfDefined(dependant: Service | Pipeline | Task, ctx: Ctx) {
-    if (!dependant.dependencies) {
-      return;
-    }
-
     for (const dependency of dependant.dependencies) {
       const target = dependency.target;
 
@@ -738,6 +731,8 @@ export class Bbox {
           }
           break;
         }
+        default:
+          throw new Error(`Dependency target type not supported`);
       }
     }
   }
