@@ -36,5 +36,5 @@ const proxy = redbird({
 
 for (const domain in config.forward) {
   console.log(`https://${domain} -> ${config.forward[domain]}`); // XXX
-  proxy.register(domain, config.forward[domain]);
+  proxy.register(domain, config.forward[domain], {useTargetHostHeader: true});
 }
