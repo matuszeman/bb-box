@@ -1,3 +1,3 @@
-# bb-box
+# bbox
 
 WORK IN PROGRESS

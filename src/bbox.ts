@@ -3,16 +3,11 @@ import 'reflect-metadata';
 import * as jf from 'joiful';
 import {PrettyJoi} from './pretty-joi';
 import {WaitOnOptions} from 'wait-on';
-import {ProcessList, ProcessManager, ProcessStatus} from './process-manager';
+import {ProcessManager, ProcessStatus} from './process-manager';
 import {BboxDiscovery} from './bbox-discovery';
 import {PromptParams, Ui} from './ui';
 import * as shelljs from 'shelljs';
 import {Cli} from './cli';
-import {Listr, ListrContext, ListrTask} from 'listr2';
-
-export interface TaskRunnerCtx {
-
-}
 
 export interface RunnableFnParams {
   bbox: Bbox;
