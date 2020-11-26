@@ -1,6 +1,6 @@
 {
-  "name": "@kapitchi/bb-box",
-  "version": "0.17.0",
+  "name": "@matuszeman/bbox",
+  "version": "1.0.0",
   "description": "Development box",
   "main": "build/bbox.js",
   "types": "build/bbox.d.ts",
@@ -23,7 +23,6 @@
     "inquirer": "^7.3.3",
     "inquirer-command-prompt": "0.0.29",
     "joiful": "^2.0.1",
-    "listr2": "^3.2.2",
     "lodash": "^4.14.2",
     "marked": "^1.2.0",
     "marked-terminal": "^4.1.0",
