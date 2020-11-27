@@ -165,9 +165,9 @@ class BboxDiscovery {
         const bboxModule = this.loadJsFileIfExists(bboxModuleFile);
         const statePath = `${bboxPath}/state`;
         this.mkdir(statePath);
-        const path = absolutePath.replace(rootPath, '').slice(1);
+        const relPathFromRoot = absolutePath.replace(rootPath, '').slice(1);
         this.mkdir(`${statePath}/docker-volumes`);
-        const relDockerVolumesPath = `${path}/.bbox/state/docker-volumes`;
+        const relDockerVolumesPath = `${relPathFromRoot}/.bbox/state/docker-volumes`;
         const moduleStateFile = this.loadJsFile(stateFilePath);
         // TODO types
         const state = Object.assign({
@@ -183,7 +183,7 @@ class BboxDiscovery {
             state,
             runtime: moduleSpec.runtime,
             absolutePath,
-            path,
+            path: relPathFromRoot,
             availableRuntimes: [],
             spec: moduleSpec,
             bboxPath: bboxPath,
@@ -195,7 +195,7 @@ class BboxDiscovery {
         module.pipelines = this.createPipelines(moduleSpec.pipelines, module, ctx);
         if (moduleSpec.docker) {
             module.availableRuntimes.push(bbox_1.Runtime.Docker);
-            const volumes = this.mkdirDockerVolumes(moduleSpec.docker.volumes, relDockerVolumesPath, path);
+            const volumes = this.mkdirDockerVolumes(moduleSpec.docker.volumes, relDockerVolumesPath, relPathFromRoot, rootPath);
             module.docker = {
                 volumes
             };
@@ -227,7 +227,7 @@ class BboxDiscovery {
                 this.discoverDependencies(serviceSpec.dependencies, service, ctx);
                 if (serviceSpec.docker) {
                     // make sure to pre-create docker volumes otherwise they'll be create with root permissions by docker-compose
-                    const volumes = this.mkdirDockerVolumes(serviceSpec.docker.volumes, relDockerVolumesPath, path);
+                    const volumes = this.mkdirDockerVolumes(serviceSpec.docker.volumes, relDockerVolumesPath, relPathFromRoot, rootPath);
                     service.docker = {
                         volumes
                     };
@@ -321,7 +321,7 @@ class BboxDiscovery {
     /**
      * Make sure to pre-create docker volumes otherwise they'll be create with root permissions by docker-compose
      */
-    mkdirDockerVolumes(volumesSpec, volumesStatePath, relModulePath) {
+    mkdirDockerVolumes(volumesSpec, relVolumesStatePathFromRoot, relModulePathFromRoot, absRootPath) {
         if (!volumesSpec) {
             return {};
         }
@@ -329,20 +329,20 @@ class BboxDiscovery {
         const volumes = {};
         for (const volumeName in volumesSpec) {
             let volumeSpec = volumesSpec[volumeName];
-            let hostPath = `${volumesStatePath}/${volumeName}`;
+            let relHostPathFromRoot = `${relVolumesStatePathFromRoot}/${volumeName}`;
             let containerPath;
             if (typeof volumeSpec === 'string') {
                 containerPath = volumeSpec;
             }
             else {
-                ({ containerPath, hostPath } = volumeSpec);
-                hostPath = `${relModulePath}/${hostPath}`;
+                ({ containerPath, hostPath: relHostPathFromRoot } = volumeSpec);
+                relHostPathFromRoot = `${relModulePathFromRoot}/${relHostPathFromRoot}`;
             }
             volumes[volumeName] = {
                 containerPath,
-                hostPath: `./${hostPath}` // must be prefixed with ./ otherwise it's taken as named volume
+                hostPath: `./${relHostPathFromRoot}` // must be prefixed with ./ otherwise it's taken as named volume
             };
-            this.mkdir(hostPath);
+            this.mkdir(`${absRootPath}/${relHostPathFromRoot}`);
         }
         process.umask(oldUmask);
         return volumes;
