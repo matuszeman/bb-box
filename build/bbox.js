@@ -422,6 +422,9 @@ class Bbox {
     }
     stageStartService(service, ctx, dependency) {
         this.stageDependenciesIfDefined(service, ctx);
+        if (service.module.runtime === Runtime.Local && !service.spec.start) {
+            return;
+        }
         this.stageAction(ctx, `[${service.module.name}] Start ${service.name} service`, `start_service_${service.name}`, dependency, async (ctx) => {
             await this.runStartService(service, ctx);
         });
