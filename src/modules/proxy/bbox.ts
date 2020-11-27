@@ -99,8 +99,9 @@ const config: ModuleSpec = {
       }
     },
     CreateMkcert: {
-      run: async ({module, getTaskReturnValue, run}) => {
+      run: async ({module, getTaskReturnValue, run, ctx}) => {
         if (!process.env.create) {
+          ctx.ui.print('Cancelled. Did not create new certificates.')
           return;
         }
         const {domain} = getTaskReturnValue('configure');
