@@ -20,10 +20,7 @@ function runCommandOpts(bbox, ctx, handler) {
 function runServiceCommand(bbox, ctx, handler) {
     return async (service, command) => {
         try {
-            const commandParams = {
-                service,
-                ...command.opts()
-            };
+            const commandParams = Object.assign({ service }, command.opts());
             await handler.bind(bbox)(commandParams, ctx);
             //await bbox.status({}, ctx);
         }
@@ -55,29 +52,37 @@ class Cli {
         program.storeOptionsAsProperties(false);
         program.version(require('../package.json').version);
         createServiceCommand(program, 'start')
+            .description('Start a service.')
             .action(runServiceCommand(bbox, ctx, bbox.start));
         createServiceCommand(program, 'restart')
+            .description('Restart a service.')
             .action(runServiceCommand(bbox, ctx, bbox.restart));
         createServiceCommand(program, 'stop')
+            .description('Stop a service.')
             .action(runServiceCommand(bbox, ctx, bbox.stop));
-        program.command('status').aliases(['ps'])
+        program.command('list').aliases(['ls', 'status', 'ps'])
+            .description('List services.')
             .action(runCommandOpts(bbox, ctx, bbox.status));
-        createServiceCommand(program, 'test')
-            .action(runServiceCommand(bbox, ctx, bbox.test));
         program.command('configure <service>').alias('config')
+            .description('Run "configure" pipeline on a service.')
             .action(runCommand(bbox, ctx, bbox.pipeline, (service) => ({ service, pipeline: 'configure' })));
         program.command('build <service>')
+            .description('Run "build" pipeline on a service.')
             .action(runCommand(bbox, ctx, bbox.pipeline, (service) => ({ service, pipeline: 'build' })));
         program.command('initialize <service>').alias('init')
+            .description('Run "initialize" pipeline on a service.')
             .action(runCommand(bbox, ctx, bbox.pipeline, (service) => ({ service, pipeline: 'initialize' })));
         program.command('reset <service>')
+            .description('Run "reset" pipeline on a service.')
             .action(runCommand(bbox, ctx, bbox.pipeline, (service) => ({ service, pipeline: 'reset' })));
         program.command('pipeline <service> [pipeline]')
+            .description('Run a pipeline on a service. List all pipelines when pipeline is not provided.')
             .action(runCommand(bbox, ctx, bbox.pipelineOrListPipelines, (service, pipeline) => ({ service, pipeline })));
         program.command('task <service> [task]')
+            .description('Execute a task on a service. List all tasks when task is not provided.')
             .action(runCommand(bbox, ctx, bbox.taskOrListTasks, (service, task) => ({ service, task })));
-        program.command('shell <service>')
-            .action(runCommand(bbox, ctx, bbox.shell, (service) => ({ service })));
+        // program.command('shell <service>')
+        //   .action(runCommand(bbox, ctx, bbox.shell, (service) => ({ service })))
         this.program = program;
     }
     addCommand(cmd, action, paramsHandler) {

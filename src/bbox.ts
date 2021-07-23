@@ -163,6 +163,13 @@ export class TasksSpec {
   [name: string]: TaskSpec;
 }
 
+export class CronTabSpec {
+  [name: string]: {
+    schedule: string;
+    task: string;
+  }
+}
+
 export class Task implements DependantEntity {
   type: 'Task';
   name: string;
@@ -221,6 +228,7 @@ export class ModuleSpec {
   runtime?: Runtime;
   pipelines?: PipelinesSpec;
   tasks?: TasksSpec;
+  crontab?: CronTabSpec;
   //migrations?: {[key: string]: RunnableSpec};
   env?: {[key: string]: any};
   // internal
@@ -411,13 +419,6 @@ export class Bbox {
         await module.bboxModule.onCliInit(this, cli, ctx);
       }
     }
-  }
-
-  @validateParams()
-  async test(params: ServiceCommandParams, ctx: Ctx) {
-    //const {module, service} = await this.getService(params.services[0]);
-    //console.log(module, service); // XXX
-    //await this.processManager.sendDataToService(module, service);
   }
 
   @validateParams()

@@ -1,15 +1,18 @@
 module.exports = {
-  name: 'container-info',
+  name: 'mongo',
   docker: {
-    image: 'matuszeman/container-info',
+    image: 'mongo:3.6',
+    volumes: {
+      data: '/data/db'
+    }
   },
   services: {
-    'container-info': {
-      port: 3000,
+    mongo: {
+      port: 27017,
       healthCheck: {
         waitOn: {
           resources: [
-            'http-get://:3000/os'
+            'tcp:27017'
           ]
         }
       }

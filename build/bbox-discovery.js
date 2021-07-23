@@ -108,6 +108,7 @@ class BboxDiscovery {
         const paths = globby.sync(this.bboxFilesGlob, {
             ignore: this.ignore,
             cwd: rootPath,
+            deep: 4,
             absolute: true,
             gitignore: false,
             // TODO suppressErrors does not work and still getting EACCESS errors
@@ -288,11 +289,7 @@ class BboxDiscovery {
             return;
         }
         for (const dependencySpecOrig of dependenciesSpec) {
-            const dependencySpec = {
-                //module: dependant.dependantModule?.name,
-                //service: dependant.dependantService?.name,
-                ...dependencySpecOrig
-            };
+            const dependencySpec = Object.assign({}, dependencySpecOrig);
             ctx.depsToResolve.push({
                 dependant,
                 spec: dependencySpec

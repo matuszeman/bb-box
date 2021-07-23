@@ -14,9 +14,6 @@ const config = {
                 return getTaskReturnValue('configure', moduleName).domain;
             };
         }
-        // params.registeredModule.docker.volumes['bboxProxyCaPath'] = {
-        //   hostPath: params.bbox.
-        // }
     },
     pipelines: {
         configure: {

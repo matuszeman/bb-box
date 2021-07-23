@@ -145,6 +145,12 @@ export declare class TaskSpec {
 export declare class TasksSpec {
     [name: string]: TaskSpec;
 }
+export declare class CronTabSpec {
+    [name: string]: {
+        schedule: string;
+        task: string;
+    };
+}
 export declare class Task implements DependantEntity {
     type: 'Task';
     name: string;
@@ -199,6 +205,7 @@ export declare class ModuleSpec {
     runtime?: Runtime;
     pipelines?: PipelinesSpec;
     tasks?: TasksSpec;
+    crontab?: CronTabSpec;
     env?: {
         [key: string]: any;
     };
@@ -303,7 +310,6 @@ export declare class Bbox {
     constructor(fileManager: BboxDiscovery, processManager: ProcessManager);
     init(ctx: Ctx): Promise<void>;
     onCliInit(cli: Cli, ctx: Ctx): Promise<void>;
-    test(params: ServiceCommandParams, ctx: Ctx): Promise<void>;
     pipeline(params: PipelineParams, ctx: Ctx): Promise<void>;
     listPipelines(params: ListPipelinesParams, ctx: Ctx): Promise<void>;
     pipelineOrListPipelines(params: PipelineOrListPipelinesParams, ctx: Ctx): Promise<void>;

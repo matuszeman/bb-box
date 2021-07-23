@@ -9,7 +9,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.Bbox = exports.ProjectOpts = exports.validateParams = exports.ListCommandParams = exports.ShellParams = exports.TaskOrListTasksParams = exports.ListTasksParams = exports.TaskParams = exports.PipelineOrListPipelinesParams = exports.ListPipelinesParams = exports.PipelineParams = exports.RunCommandParams = exports.ServiceCommandParams = exports.Ctx = exports.Module = exports.ModuleDocker = exports.ModuleSpec = exports.DockerVolumesSpec = exports.Pipelines = exports.Pipeline = exports.PipelinesSpec = exports.PipelineSpec = exports.PipelineStepsSpec = exports.PipelineStepSpec = exports.Tasks = exports.Task = exports.TasksSpec = exports.TaskSpec = exports.PipelinesState = exports.PipelineState = exports.TasksState = exports.TaskState = exports.Runtime = exports.Service = exports.ServiceDocker = exports.ServiceProcessStatus = exports.Dependency = exports.DependencySpec = exports.HookSpec = void 0;
+exports.Bbox = exports.ProjectOpts = exports.validateParams = exports.ListCommandParams = exports.ShellParams = exports.TaskOrListTasksParams = exports.ListTasksParams = exports.TaskParams = exports.PipelineOrListPipelinesParams = exports.ListPipelinesParams = exports.PipelineParams = exports.RunCommandParams = exports.ServiceCommandParams = exports.Ctx = exports.Module = exports.ModuleDocker = exports.ModuleSpec = exports.DockerVolumesSpec = exports.Pipelines = exports.Pipeline = exports.PipelinesSpec = exports.PipelineSpec = exports.PipelineStepsSpec = exports.PipelineStepSpec = exports.Tasks = exports.Task = exports.CronTabSpec = exports.TasksSpec = exports.TaskSpec = exports.PipelinesState = exports.PipelineState = exports.TasksState = exports.TaskState = exports.Runtime = exports.Service = exports.ServiceDocker = exports.ServiceProcessStatus = exports.Dependency = exports.DependencySpec = exports.HookSpec = void 0;
 require("source-map-support/register");
 require("reflect-metadata");
 const jf = require("joiful");
@@ -60,6 +60,9 @@ exports.TaskSpec = TaskSpec;
 class TasksSpec {
 }
 exports.TasksSpec = TasksSpec;
+class CronTabSpec {
+}
+exports.CronTabSpec = CronTabSpec;
 class Task {
 }
 exports.Task = Task;
@@ -255,11 +258,6 @@ class Bbox {
                 await module.bboxModule.onCliInit(this, cli, ctx);
             }
         }
-    }
-    async test(params, ctx) {
-        //const {module, service} = await this.getService(params.services[0]);
-        //console.log(module, service); // XXX
-        //await this.processManager.sendDataToService(module, service);
     }
     async pipeline(params, ctx) {
         const service = this.getService(params.service);
@@ -710,10 +708,7 @@ class Bbox {
         }
     }
     async getEnvValues(module, env, ctx) {
-        const envSpec = {
-            ...module.spec.env,
-            ...env
-        };
+        const envSpec = Object.assign(Object.assign({}, module.spec.env), env);
         return this.evaluateEnvValues(module, envSpec, ctx);
     }
     async evaluateEnvValues(module, envValueSpec, ctx) {
@@ -732,10 +727,7 @@ class Bbox {
     async runFunction(module, runnable, env, ctx) {
         const origEnvs = process.env;
         shelljs.pushd('-q', module.cwdAbsolutePath);
-        process.env = {
-            ...process.env,
-            ...env
-        };
+        process.env = Object.assign(Object.assign({}, process.env), env);
         try {
             const ret = await runnable({
                 bbox: this,
@@ -839,12 +831,6 @@ class Bbox {
         }
     }
 }
-__decorate([
-    validateParams(),
-    __metadata("design:type", Function),
-    __metadata("design:paramtypes", [ServiceCommandParams, Ctx]),
-    __metadata("design:returntype", Promise)
-], Bbox.prototype, "test", null);
 __decorate([
     validateParams(),
     __metadata("design:type", Function),

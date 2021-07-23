@@ -1,8 +1,8 @@
 {
   "compilerOptions": {
-    "lib": ["es2019", "es2020.bigint", "es2020.string", "es2020.symbol.wellknown"],
+    "lib": [],
     "module": "commonjs",
-    "target": "es2019",
+    "target": "es2017",
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true,
     "declaration": true,

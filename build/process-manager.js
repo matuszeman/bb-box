@@ -58,11 +58,7 @@ class ProcessManager {
                 GROUP_ID: process.getgid()
             };
         }
-        return {
-            BBOX_PATH: module.bboxPath,
-            ...envValues,
-            ...userEnv
-        };
+        return Object.assign(Object.assign({ BBOX_PATH: module.bboxPath }, envValues), userEnv);
     }
     async start(service, envValues, ctx) {
         var _a, _b, _c;
@@ -95,36 +91,16 @@ class ProcessManager {
             const args = runArgs.join(' ');
             const cmd = `docker-compose ${args}`;
             console.log('Starting process: ', cmd); // XXX
-            await pm2Start({
-                cwd: ctx.projectOpts.rootPath,
-                name: serviceSpec.name,
-                script: 'docker-compose',
-                args,
-                env,
-                interpreter: 'none',
-                autorestart: false,
-                killTimeout: 10000000,
-                ...pm2Options
-            });
+            await pm2Start(Object.assign({ cwd: ctx.projectOpts.rootPath, name: serviceSpec.name, script: 'docker-compose', args,
+                env, interpreter: 'none', autorestart: false, killTimeout: 10000000 }, pm2Options));
         }
         else {
-            await pm2Start({
-                name: serviceSpec.name,
-                cwd: module.absolutePath,
-                script: serviceSpec.start,
-                interpreter: 'none',
-                env,
-                autorestart: false,
-                killTimeout: 10000000,
-                ...pm2Options
-            });
+            await pm2Start(Object.assign({ name: serviceSpec.name, cwd: module.absolutePath, script: serviceSpec.start, interpreter: 'none', // TODO needed?
+                env, autorestart: false, killTimeout: 10000000 }, pm2Options));
         }
         if (serviceSpec.healthCheck && serviceSpec.healthCheck.waitOn) {
             ctx.ui.print(`Waiting for the service health check: ${serviceSpec.healthCheck.waitOn.resources.join(', ')}`);
-            await waitOn({
-                interval: 1000,
-                ...serviceSpec.healthCheck.waitOn
-            });
+            await waitOn(Object.assign({ interval: 1000 }, serviceSpec.healthCheck.waitOn));
         }
     }
     async onShutdown() {
@@ -207,7 +183,7 @@ class ProcessManager {
     async runInteractiveLocal(cwd, cmd, envValues, ctx) {
         //console.log('runInteractiveLocal: ', cmd); // XXX
         // env must be set from process.env otherwise docker-compose won't work
-        const env = { ...process.env, ...this.escapeEnvValues(envValues) };
+        const env = Object.assign(Object.assign({}, process.env), this.escapeEnvValues(envValues));
         //console.log('runInteractiveLocal', cmd); // XXX
         const output = [];
         return new Promise((resolve, reject) => {
@@ -237,7 +213,7 @@ class ProcessManager {
     runLocal(cwd, cmd, env) {
         //console.log('runLocal: ', cmd); // XXX
         // env must be set from process.env otherwise docker-compose won't work
-        env = { ...process.env, ...this.escapeEnvValues(env) };
+        env = Object.assign(Object.assign({}, process.env), this.escapeEnvValues(env));
         const ret = child_process_1.spawnSync(cmd, {
             cwd,
             env,

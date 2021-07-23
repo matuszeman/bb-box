@@ -137,6 +137,7 @@ export class BboxDiscovery {
     const paths = globby.sync(this.bboxFilesGlob, {
       ignore: this.ignore,
       cwd: rootPath,
+      deep: 4, //TODO how should this be defined?
       absolute: true,
       gitignore: false,
       // TODO suppressErrors does not work and still getting EACCESS errors

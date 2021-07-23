@@ -4,6 +4,7 @@
   "description": "Development box",
   "main": "build/bbox.js",
   "types": "build/bbox.d.ts",
+  "preferGlobal": true,
   "bin": {
     "bbox": "./bin/bbox.js"
   },
@@ -16,10 +17,9 @@
   "license": "MIT",
   "dependencies": {
     "commander": "^5.1.0",
+    "cron": "^1.8.2",
     "docker-compose": "^0.23.5",
-    "dockerode": "^2.5.1",
     "globby": "^11.0.4",
-    "http-proxy": "^1.18.1",
     "inquirer": "^7.3.3",
     "inquirer-command-prompt": "0.0.29",
     "joiful": "^2.0.1",
@@ -53,7 +53,6 @@
     "url": "https://github.com/matuszeman/bb-box"
   },
   "devDependencies": {
-    "@types/http-proxy": "^1.17.4",
     "@types/inquirer": "^7.3.1",
     "@types/lodash": "^4.14.157",
     "@types/marked": "^1.1.0",

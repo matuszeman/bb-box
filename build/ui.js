@@ -8,7 +8,6 @@ const lodash_1 = require("lodash");
 const stream_1 = require("stream");
 const stripAnsiStream = require("strip-ansi-stream");
 marked.setOptions({
-    // Define custom renderer
     renderer: new TerminalRenderer()
 });
 class PromptParams {
@@ -27,21 +26,20 @@ class Ui {
     constructor(opts = {}) {
         var _a, _b;
         this.opts = opts;
+        // TODO
         const passthrough = new stream_1.PassThrough();
         passthrough.on('data', (data) => {
-            console.log('>>>', data); // XXX
-            console.log('>>>', data); // XXX
+            // console.log('>>>', data); // XXX
+            // console.log('>>>', data); // XXX
         });
         this.stdout = passthrough.pipe((_a = opts.stdout) !== null && _a !== void 0 ? _a : process.stdout);
         this.stdin = (_b = opts.stdin) !== null && _b !== void 0 ? _b : process.stdin;
         if (opts.stdoutStripAnsi) {
-            console.log('RRRRRRRRRRRRRR'); // XXX
-            console.log('RRRRRRRRRRRRRR'); // XXX
             this.stdout = stripAnsiStream().pipe(passthrough).pipe(this.stdout);
         }
     }
     print(markdown) {
-        this.stdout.write(marked(markdown)); // XXX
+        this.stdout.write(marked(markdown));
     }
     async prompt(params) {
         const questions = lodash_1.cloneDeep(params.questions);
