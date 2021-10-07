@@ -83,9 +83,9 @@ class BboxDiscovery {
     constructor() {
         this.bboxFile = 'bbox.js';
         this.bboxFilesGlob = [
-            this.bboxFile,
-            `*/${this.bboxFile}`
+            `**/${this.bboxFile}`
         ];
+        this.ignore = ['.bbox'];
     }
     discoverRootPath(currentPath) {
         let rootPath = undefined;
@@ -106,10 +106,10 @@ class BboxDiscovery {
     }
     async discoverModules(rootPath) {
         const paths = globby.sync(this.bboxFilesGlob, {
-            ignore: ['**/.bbox'],
+            ignore: this.ignore,
             cwd: rootPath,
             absolute: true,
-            gitignore: true,
+            gitignore: false,
             // TODO suppressErrors does not work and still getting EACCESS errors
             suppressErrors: true // to suppress e.g. EACCES: permission denied, scandir
         });
@@ -131,7 +131,7 @@ class BboxDiscovery {
     async discoverInternalModules(projectRootPath) {
         const rootPath = `${__dirname}/modules`;
         const paths = globby.sync(this.bboxFilesGlob, {
-            ignore: ['**/.bbox'],
+            ignore: this.ignore,
             cwd: rootPath,
             absolute: true,
             gitignore: true,

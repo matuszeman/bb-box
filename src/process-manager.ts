@@ -65,6 +65,22 @@ export class ProcessManager {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
+  private createEnv(module: Module, envValues: EnvValues) {
+    let userEnv;
+    if (os.type() === 'Linux' && process.getgid && process.getuid) {
+      userEnv = {
+        USER_ID: process.getuid(),
+        GROUP_ID: process.getgid()
+      };
+    }
+
+    return {
+      BBOX_PATH: module.bboxPath,
+      ...envValues,
+      ...userEnv
+    }
+  }
+
   async start(service: Service, envValues: EnvValues, ctx: Ctx) {
     const module = service.module;
     const serviceSpec = service.spec;
@@ -75,10 +91,7 @@ export class ProcessManager {
 
     await this.pm2Connect();
 
-    const env = {
-      BBOX_PATH: module.bboxPath,
-      ...envValues
-    };
+    const env = this.createEnv(service.module, envValues);
 
     //TODO
     const pm2Options = service.spec.pm2Options ?? {};
@@ -104,12 +117,13 @@ export class ProcessManager {
       }
       const args = runArgs.join(' ');
       const cmd = `docker-compose ${args}`;
-      //console.log('Starting process: ', cmd); // XXX
+      console.log('Starting process: ', cmd); // XXX
       await pm2Start({
         cwd: ctx.projectOpts.rootPath,
         name: serviceSpec.name,
         script: 'docker-compose',
         args, // must be string, didn't work with array
+        env,
         interpreter: 'none',// TODO needed?
         autorestart: false,
         killTimeout: 10000000, // TODO configurable
@@ -130,7 +144,10 @@ export class ProcessManager {
 
     if (serviceSpec.healthCheck && serviceSpec.healthCheck.waitOn) {
       ctx.ui.print(`Waiting for the service health check: ${serviceSpec.healthCheck.waitOn.resources.join(', ')}`);
-      await waitOn(serviceSpec.healthCheck.waitOn);
+      await waitOn({
+        interval: 1000,
+        ...serviceSpec.healthCheck.waitOn
+      });
     }
   }
 
@@ -190,7 +207,7 @@ export class ProcessManager {
   }
 
   private async runInteractiveDocker(module: Module, cmd: string, ctx: Ctx, env: EnvValues) {
-    return this.runInteractiveLocal(ctx.projectOpts.rootPath, this.createDockerComposeRunCmd(module, cmd, true, ctx, env), {}, ctx);
+    return this.runInteractiveLocal(ctx.projectOpts.rootPath, this.createDockerComposeRunCmd(module, cmd, true, ctx, env), this.createEnv(module, env), ctx);
   }
 
   private createDockerComposeRunCmd(module: Module, cmd: string | undefined, interactive: boolean, ctx: Ctx, env: EnvValues) {
@@ -212,7 +229,7 @@ export class ProcessManager {
 
     args.push('run', '--rm', '--use-aliases');
     if (!interactive) {
-      args.push('-T');
+      //args.push('-T');
     }
 
     // Use user option only for local modules

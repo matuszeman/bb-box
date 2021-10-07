@@ -25,6 +25,7 @@ export declare class ProcessManager {
     startAndWaitUntilStarted(service: Service, envValues: EnvValues, ctx: Ctx): Promise<void>;
     private waitForStatus;
     private wait;
+    private createEnv;
     start(service: Service, envValues: EnvValues, ctx: Ctx): Promise<void>;
     onShutdown(): Promise<void>;
     runInteractive(module: Module, cmd: string, env: EnvValues, ctx: Ctx): Promise<{

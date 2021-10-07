@@ -85,7 +85,7 @@ const config = {
             prompt: {
                 questions: [
                     { type: 'input', name: 'hostIp', message: 'Host IP', env: 'hostIp', default: '127.0.0.1' },
-                    { type: 'input', name: 'domain', message: 'Domain', env: 'domain', default: '127.0.0.1.xip.io' },
+                    { type: 'input', name: 'domain', message: 'Domain', env: 'domain', default: 'localhost' },
                 ]
             }
         },

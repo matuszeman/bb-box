@@ -9,7 +9,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.Bbox = exports.ProjectOpts = exports.validateParams = exports.ListCommandParams = exports.ShellParams = exports.ListTasksParams = exports.TaskParams = exports.ListPipelinesParams = exports.PipelineParams = exports.RunCommandParams = exports.ServiceCommandParams = exports.Ctx = exports.Module = exports.ModuleDocker = exports.ModuleSpec = exports.DockerVolumesSpec = exports.Pipelines = exports.Pipeline = exports.PipelinesSpec = exports.PipelineSpec = exports.PipelineStepsSpec = exports.PipelineStepSpec = exports.Tasks = exports.Task = exports.TasksSpec = exports.TaskSpec = exports.PipelinesState = exports.PipelineState = exports.TasksState = exports.TaskState = exports.Runtime = exports.Service = exports.ServiceDocker = exports.ServiceProcessStatus = exports.Dependency = exports.DependencySpec = exports.HookSpec = void 0;
+exports.Bbox = exports.ProjectOpts = exports.validateParams = exports.ListCommandParams = exports.ShellParams = exports.TaskOrListTasksParams = exports.ListTasksParams = exports.TaskParams = exports.PipelineOrListPipelinesParams = exports.ListPipelinesParams = exports.PipelineParams = exports.RunCommandParams = exports.ServiceCommandParams = exports.Ctx = exports.Module = exports.ModuleDocker = exports.ModuleSpec = exports.DockerVolumesSpec = exports.Pipelines = exports.Pipeline = exports.PipelinesSpec = exports.PipelineSpec = exports.PipelineStepsSpec = exports.PipelineStepSpec = exports.Tasks = exports.Task = exports.TasksSpec = exports.TaskSpec = exports.PipelinesState = exports.PipelineState = exports.TasksState = exports.TaskState = exports.Runtime = exports.Service = exports.ServiceDocker = exports.ServiceProcessStatus = exports.Dependency = exports.DependencySpec = exports.HookSpec = void 0;
 require("source-map-support/register");
 require("reflect-metadata");
 const jf = require("joiful");
@@ -138,6 +138,17 @@ __decorate([
     __metadata("design:type", String)
 ], ListPipelinesParams.prototype, "service", void 0);
 exports.ListPipelinesParams = ListPipelinesParams;
+class PipelineOrListPipelinesParams {
+}
+__decorate([
+    jf.string().required(),
+    __metadata("design:type", String)
+], PipelineOrListPipelinesParams.prototype, "service", void 0);
+__decorate([
+    jf.string(),
+    __metadata("design:type", String)
+], PipelineOrListPipelinesParams.prototype, "pipeline", void 0);
+exports.PipelineOrListPipelinesParams = PipelineOrListPipelinesParams;
 class TaskParams {
 }
 __decorate([
@@ -156,6 +167,17 @@ __decorate([
     __metadata("design:type", String)
 ], ListTasksParams.prototype, "service", void 0);
 exports.ListTasksParams = ListTasksParams;
+class TaskOrListTasksParams {
+}
+__decorate([
+    jf.string().required(),
+    __metadata("design:type", String)
+], TaskOrListTasksParams.prototype, "service", void 0);
+__decorate([
+    jf.string(),
+    __metadata("design:type", String)
+], TaskOrListTasksParams.prototype, "task", void 0);
+exports.TaskOrListTasksParams = TaskOrListTasksParams;
 class ShellParams {
 }
 __decorate([
@@ -250,6 +272,17 @@ class Bbox {
         const module = service.module;
         ctx.ui.print(`__${module.name} pipelines:__\n${Object.values(module.pipelines).map(pipeline => `- ${pipeline.name}`).join('\n')}`);
     }
+    async pipelineOrListPipelines(params, ctx) {
+        if (params.pipeline) {
+            return this.pipeline({
+                pipeline: params.pipeline,
+                service: params.service
+            }, ctx);
+        }
+        return this.listPipelines({
+            service: params.service
+        }, ctx);
+    }
     async run(params, ctx) {
         const module = this.getModule(params.module);
         try {
@@ -295,6 +328,17 @@ class Bbox {
         const service = await this.getService(params.service);
         const module = service.module;
         ctx.ui.print(`__${module.name} tasks:__\n${Object.values(module.tasks).map(task => `- ${task.name}`).join('\n')}`);
+    }
+    async taskOrListTasks(params, ctx) {
+        if (params.task) {
+            return this.task({
+                task: params.task,
+                service: params.service
+            }, ctx);
+        }
+        return this.listTasks({
+            service: params.service
+        }, ctx);
     }
     async status(params, ctx) {
         let table = 'Service️| Module | State | Runtime | Avail. runtimes\n' +
@@ -816,6 +860,12 @@ __decorate([
 __decorate([
     validateParams(),
     __metadata("design:type", Function),
+    __metadata("design:paramtypes", [PipelineOrListPipelinesParams, Ctx]),
+    __metadata("design:returntype", Promise)
+], Bbox.prototype, "pipelineOrListPipelines", null);
+__decorate([
+    validateParams(),
+    __metadata("design:type", Function),
     __metadata("design:paramtypes", [ShellParams, Ctx]),
     __metadata("design:returntype", Promise)
 ], Bbox.prototype, "shell", null);
@@ -849,6 +899,12 @@ __decorate([
     __metadata("design:paramtypes", [ListTasksParams, Ctx]),
     __metadata("design:returntype", Promise)
 ], Bbox.prototype, "listTasks", null);
+__decorate([
+    validateParams(),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [TaskOrListTasksParams, Ctx]),
+    __metadata("design:returntype", Promise)
+], Bbox.prototype, "taskOrListTasks", null);
 __decorate([
     validateParams(),
     __metadata("design:type", Function),

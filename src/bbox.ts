@@ -299,6 +299,13 @@ export class ListPipelinesParams {
   service: string;
 }
 
+export class PipelineOrListPipelinesParams {
+  @jf.string().required()
+  service: string;
+  @jf.string()
+  pipeline: string;
+}
+
 export class TaskParams {
   @jf.string().required()
   service: string;
@@ -309,6 +316,13 @@ export class TaskParams {
 export class ListTasksParams {
   @jf.string().required()
   service: string;
+}
+
+export class TaskOrListTasksParams {
+  @jf.string().required()
+  service: string;
+  @jf.string()
+  task?: string;
 }
 
 export class ShellParams {
@@ -421,6 +435,20 @@ export class Bbox {
     ctx.ui.print(`__${module.name} pipelines:__\n${Object.values(module.pipelines).map(pipeline => `- ${pipeline.name}`).join('\n')}`);
   }
 
+  @validateParams()
+  async pipelineOrListPipelines(params: PipelineOrListPipelinesParams, ctx: Ctx) {
+    if (params.pipeline) {
+      return this.pipeline({
+        pipeline: params.pipeline,
+        service: params.service
+      }, ctx);
+    }
+
+    return this.listPipelines({
+      service: params.service
+    }, ctx);
+  }
+
   async run(params: RunCommandParams, ctx: Ctx) {
     const module = this.getModule(params.module);
     try {
@@ -484,6 +512,20 @@ export class Bbox {
     const service = await this.getService(params.service);
     const module = service.module;
     ctx.ui.print(`__${module.name} tasks:__\n${Object.values(module.tasks).map(task => `- ${task.name}`).join('\n')}`);
+  }
+
+  @validateParams()
+  async taskOrListTasks(params: TaskOrListTasksParams, ctx: Ctx) {
+    if (params.task) {
+      return this.task({
+        task: params.task,
+        service: params.service
+      }, ctx);
+    }
+
+    return this.listTasks({
+      service: params.service
+    }, ctx);
   }
 
   @validateParams()

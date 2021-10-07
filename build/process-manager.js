@@ -50,6 +50,20 @@ class ProcessManager {
     async wait(ms) {
         return new Promise((resolve) => setTimeout(resolve, ms));
     }
+    createEnv(module, envValues) {
+        let userEnv;
+        if (os.type() === 'Linux' && process.getgid && process.getuid) {
+            userEnv = {
+                USER_ID: process.getuid(),
+                GROUP_ID: process.getgid()
+            };
+        }
+        return {
+            BBOX_PATH: module.bboxPath,
+            ...envValues,
+            ...userEnv
+        };
+    }
     async start(service, envValues, ctx) {
         var _a, _b, _c;
         const module = service.module;
@@ -59,10 +73,7 @@ class ProcessManager {
             return;
         }
         await this.pm2Connect();
-        const env = {
-            BBOX_PATH: module.bboxPath,
-            ...envValues
-        };
+        const env = this.createEnv(service.module, envValues);
         //TODO
         const pm2Options = (_a = service.spec.pm2Options) !== null && _a !== void 0 ? _a : {};
         if (module.runtime === bbox_1.Runtime.Docker) {
@@ -83,12 +94,13 @@ class ProcessManager {
             }
             const args = runArgs.join(' ');
             const cmd = `docker-compose ${args}`;
-            //console.log('Starting process: ', cmd); // XXX
+            console.log('Starting process: ', cmd); // XXX
             await pm2Start({
                 cwd: ctx.projectOpts.rootPath,
                 name: serviceSpec.name,
                 script: 'docker-compose',
                 args,
+                env,
                 interpreter: 'none',
                 autorestart: false,
                 killTimeout: 10000000,
@@ -109,7 +121,10 @@ class ProcessManager {
         }
         if (serviceSpec.healthCheck && serviceSpec.healthCheck.waitOn) {
             ctx.ui.print(`Waiting for the service health check: ${serviceSpec.healthCheck.waitOn.resources.join(', ')}`);
-            await waitOn(serviceSpec.healthCheck.waitOn);
+            await waitOn({
+                interval: 1000,
+                ...serviceSpec.healthCheck.waitOn
+            });
         }
     }
     async onShutdown() {
@@ -157,7 +172,7 @@ class ProcessManager {
         return processes.find((process) => process.serviceName === service.name);
     }
     async runInteractiveDocker(module, cmd, ctx, env) {
-        return this.runInteractiveLocal(ctx.projectOpts.rootPath, this.createDockerComposeRunCmd(module, cmd, true, ctx, env), {}, ctx);
+        return this.runInteractiveLocal(ctx.projectOpts.rootPath, this.createDockerComposeRunCmd(module, cmd, true, ctx, env), this.createEnv(module, env), ctx);
     }
     createDockerComposeRunCmd(module, cmd, interactive, ctx, env) {
         const args = this.createDockerComposeRunArgs(module, interactive, ctx, env);
@@ -175,7 +190,7 @@ class ProcessManager {
         }
         args.push('run', '--rm', '--use-aliases');
         if (!interactive) {
-            args.push('-T');
+            //args.push('-T');
         }
         // Use user option only for local modules
         if (module.availableRuntimes.findIndex(value => value === bbox_1.Runtime.Local) !== -1

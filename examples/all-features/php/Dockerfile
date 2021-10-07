@@ -12,5 +12,4 @@ RUN if [ ${USER_ID:-0} -ne 0 ] && [ ${GROUP_ID:-0} -ne 0 ] && ![ id "$USER_ID" >
     groupadd -g ${GROUP_ID} user &&\
     useradd -l -u ${USER_ID} -g user user \
 ;fi
-
 USER user

@@ -83,17 +83,11 @@ export class Cli {
     program.command('reset <service>')
       .action(runCommand(bbox, ctx, bbox.pipeline, (service) => ({ service, pipeline: 'reset' })))
 
-    program.command('pipeline <service> <pipeline>')
-      .action(runCommand(bbox, ctx, bbox.pipeline, (service, pipeline) => ({ service, pipeline })))
+    program.command('pipeline <service> [pipeline]')
+      .action(runCommand(bbox, ctx, bbox.pipelineOrListPipelines, (service, pipeline) => ({ service, pipeline })))
 
-    program.command('pipelines <service>')
-      .action(runCommand(bbox, ctx, bbox.listPipelines, (service) => ({ service })))
-
-    program.command('task <service> <task>')
-      .action(runCommand(bbox, ctx, bbox.task, (service, task) => ({ service, task })))
-
-    program.command('tasks <service>')
-      .action(runCommand(bbox, ctx, bbox.listTasks, (service) => ({ service })))
+    program.command('task <service> [task]')
+      .action(runCommand(bbox, ctx, bbox.taskOrListTasks, (service, task) => ({ service, task })))
 
     program.command('shell <service>')
       .action(runCommand(bbox, ctx, bbox.shell, (service) => ({ service })))

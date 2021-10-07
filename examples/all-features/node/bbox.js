@@ -1,6 +1,6 @@
 module.exports = {
   name: 'node',
-  runtime: 'Local',
+  runtime: 'Docker',
   configure: {
     '01-createConfig': {
       run: () => {

@@ -15,6 +15,7 @@ export declare class DiscoveryCtx {
 export declare class BboxDiscovery {
     private bboxFile;
     private bboxFilesGlob;
+    private ignore;
     discoverRootPath(currentPath: string): string;
     discoverModules(rootPath: string): Promise<Module[]>;
     discoverInternalModules(projectRootPath: string): Promise<Module[]>;

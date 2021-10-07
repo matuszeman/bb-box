@@ -267,12 +267,20 @@ export declare class PipelineParams {
 export declare class ListPipelinesParams {
     service: string;
 }
+export declare class PipelineOrListPipelinesParams {
+    service: string;
+    pipeline: string;
+}
 export declare class TaskParams {
     service: string;
     task: string;
 }
 export declare class ListTasksParams {
     service: string;
+}
+export declare class TaskOrListTasksParams {
+    service: string;
+    task?: string;
 }
 export declare class ShellParams {
     service: string;
@@ -298,6 +306,7 @@ export declare class Bbox {
     test(params: ServiceCommandParams, ctx: Ctx): Promise<void>;
     pipeline(params: PipelineParams, ctx: Ctx): Promise<void>;
     listPipelines(params: ListPipelinesParams, ctx: Ctx): Promise<void>;
+    pipelineOrListPipelines(params: PipelineOrListPipelinesParams, ctx: Ctx): Promise<void>;
     run(params: RunCommandParams, ctx: Ctx): Promise<void>;
     shell(params: ShellParams, ctx: Ctx): Promise<void>;
     start(params: ServiceCommandParams, ctx: Ctx): Promise<void>;
@@ -305,6 +314,7 @@ export declare class Bbox {
     stop(params: ServiceCommandParams, ctx: Ctx): Promise<void>;
     task(params: TaskParams, ctx: Ctx): Promise<void>;
     listTasks(params: ListTasksParams, ctx: Ctx): Promise<void>;
+    taskOrListTasks(params: TaskOrListTasksParams, ctx: Ctx): Promise<void>;
     status(params: ListCommandParams, ctx: Ctx): Promise<void>;
     private executeStaged;
     private boolToEmoji;
