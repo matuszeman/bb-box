@@ -18,7 +18,7 @@
     "commander": "^5.1.0",
     "docker-compose": "^0.23.5",
     "dockerode": "^2.5.1",
-    "globby": "^11.0.1",
+    "globby": "^11.0.4",
     "http-proxy": "^1.18.1",
     "inquirer": "^7.3.3",
     "inquirer-command-prompt": "0.0.29",
