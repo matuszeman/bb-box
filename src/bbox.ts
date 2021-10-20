@@ -985,7 +985,7 @@ export class Bbox {
           let taskModule = moduleName ? this.getModule(moduleName) : module;
           const {state} = this.getTask(taskModule, taskName);
           if (typeof state.returns === 'undefined') {
-            throw new Error(`No return value for task ${taskName} in module ${moduleName}`);
+            throw new Error(`No return value for task '${taskName}' in module '${moduleName}'`);
           }
           return state.returns;
         },
