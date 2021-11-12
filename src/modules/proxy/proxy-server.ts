@@ -27,7 +27,8 @@ const proxy = redbird({
   //xfwd: false,
   //secure: false,
   ssl: {
-    http2: true,
+    // http2 was causing issues with https - https://github.com/OptimalBits/redbird/issues/231
+    //http2: true,
     port: config.httpsPort,
     cert: certPath,
     key: keyPath
