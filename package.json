@@ -23,7 +23,7 @@
     "ip": "^1.1.5",
     "joi": "^11.0.2",
     "lodash": "^4.17.4",
-    "shelljs": "^0.7.8",
+    "shelljs": "^0.8.5",
     "yamljs": "^0.3.0"
   },
   "peerDependencies": {
